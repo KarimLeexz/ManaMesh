@@ -32,5 +32,6 @@ COPY . .
 # Expose port (Railway sets PORT env var)
 EXPOSE 8000
 
-# Start command
-CMD uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start command - use shell form to allow variable substitution
+# Note: Railway uses socket_app (combined FastAPI + Socket.IO)
+CMD ["sh", "-c", "uvicorn backend.main:socket_app --host 0.0.0.0 --port ${PORT:-8000}"]
