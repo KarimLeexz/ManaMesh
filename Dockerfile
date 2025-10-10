@@ -1,13 +1,20 @@
 # Use Python 3.14
 FROM python:3.14-slim
 
-# Install system dependencies for OpenCV and build tools for NumPy
+# Install system dependencies for OpenCV, NumPy, Pillow, and uvloop
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
     gcc \
     g++ \
+    zlib1g-dev \
+    libjpeg-dev \
+    libtiff-dev \
+    libfreetype6-dev \
+    liblcms2-dev \
+    libwebp-dev \
+    make \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
