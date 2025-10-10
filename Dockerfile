@@ -1,11 +1,13 @@
 # Use Python 3.14
 FROM python:3.14-slim
 
-# Install system dependencies for OpenCV
+# Install system dependencies for OpenCV and build tools for NumPy
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
