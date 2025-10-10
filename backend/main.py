@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 import os
-from recognizer import get_recognizer
+from backend.recognizer import get_recognizer
 from dotenv import load_dotenv
 
 # Load environment variables
