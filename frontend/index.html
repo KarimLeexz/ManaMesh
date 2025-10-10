@@ -133,13 +133,13 @@
                             </div>
                             
                             <!-- Three-dot menu button for main view -->
-                            <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" style="display: none;">
+                            <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-50" style="display: none;">
                                 <label tabindex="0" class="btn btn-sm btn-circle btn-neutral">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                                     </svg>
                                 </label>
-                                <ul tabindex="0" class="dropdown-content z-[100] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
+                                <ul tabindex="0" class="dropdown-content z-[1000] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
                                     <!-- Menu items will be dynamically populated -->
                                 </ul>
                             </div>
@@ -196,8 +196,8 @@
                         </button>
                     </div>
                     
-                    <!-- Camera Thumbnails (Horizontal) -->
-                    <div id="cameraList" class="flex gap-4 overflow-x-auto pb-2">
+                    <!-- Camera Thumbnails (Horizontal, Centered) -->
+                    <div id="cameraList" class="flex gap-4 justify-center overflow-x-auto pb-2">
                         <!-- Cameras will be added here dynamically -->
                         <div class="text-center text-base-content/50 py-8 w-full" id="noCamerasMessage">
                             <p class="text-sm">No cameras active. Enable your camera to get started!</p>

@@ -140,8 +140,27 @@ async function joinRoom() {
     // Initialize Socket.IO connection
     initializeSocketIO();
     
-    // Start local camera
-    await enableCamera();
+    // Try to start local camera (but don't fail if unavailable)
+    try {
+        if (state.selectedDeviceId) {
+            await enableCamera();
+        } else {
+            // No camera selected - join without camera
+            console.log('Joining without camera');
+            // Add placeholder for local user
+            addCamera('local', null, state.username + ' (You)', true);
+            
+            // Show enable camera button
+            const enableBtn = document.getElementById('enableCameraBtn');
+            enableBtn.style.display = 'flex';
+        }
+    } catch (err) {
+        console.error('Failed to enable camera on join:', err);
+        // Join without camera
+        addCamera('local', null, state.username + ' (You)', true);
+        const enableBtn = document.getElementById('enableCameraBtn');
+        enableBtn.style.display = 'flex';
+    }
     
     showToast(`Welcome, ${state.username}!`, 'success');
 }
@@ -253,7 +272,12 @@ async function enableCamera() {
         
         console.log('✓ Local camera enabled', state.localStream);
         
-        // Add to camera list
+        // Check if we already have a placeholder - update it
+        if (state.cameras.has('local')) {
+            removeCamera('local');
+        }
+        
+        // Add to camera list with stream
         addCamera('local', state.localStream, state.username + ' (You)', true);
         
         // Show on main feed by default
@@ -388,22 +412,41 @@ function createPeerConnection(userId, username, initiator) {
  * Add camera to the list
  */
 function addCamera(userId, stream, username, isLocal = false) {
-    // Create video element
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsinline = true;
-    video.srcObject = stream;
-    video.style.transform = 'scaleX(-1)';
-    video.muted = isLocal; // Mute local to avoid feedback
-    video.className = 'w-full h-full object-cover';
+    // Check if stream is null (no camera) - show placeholder instead
+    const hasStream = stream !== null;
+    
+    // Create video element or placeholder
+    let mediaElement;
+    if (hasStream) {
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsinline = true;
+        video.srcObject = stream;
+        video.style.transform = 'scaleX(-1)';
+        video.muted = isLocal; // Mute local to avoid feedback
+        video.className = 'w-full h-full object-cover';
+        mediaElement = video;
+    } else {
+        // Create placeholder for no camera
+        const placeholder = document.createElement('div');
+        placeholder.className = 'w-full h-full flex items-center justify-center bg-base-300';
+        placeholder.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="2"/>
+            </svg>
+        `;
+        mediaElement = placeholder;
+    }
     
     // Store in state with flip info
     state.cameras.set(userId, { 
         stream, 
-        element: video, 
+        element: mediaElement, 
         username,
         flipH: false,
-        flipV: false
+        flipV: false,
+        hasStream
     });
     
     // Create thumbnail container
@@ -414,8 +457,10 @@ function addCamera(userId, stream, username, isLocal = false) {
     // Video wrapper (clickable) - this has overflow-hidden
     const videoWrapper = document.createElement('div');
     videoWrapper.className = 'w-full h-full cursor-pointer hover:ring-2 hover:ring-primary transition-all rounded-lg overflow-hidden';
-    videoWrapper.onclick = () => showOnMainFeed(userId);
-    videoWrapper.appendChild(video);
+    if (hasStream) {
+        videoWrapper.onclick = () => showOnMainFeed(userId);
+    }
+    videoWrapper.appendChild(mediaElement);
     container.appendChild(videoWrapper);
     
     // Add name badge
@@ -424,16 +469,17 @@ function addCamera(userId, stream, username, isLocal = false) {
     badge.textContent = username;
     container.appendChild(badge);
     
-    // Three-dot menu button
+    // Three-dot menu button - ALWAYS visible on hover, with high z-index
     const menuBtn = document.createElement('div');
-    menuBtn.className = 'dropdown dropdown-end absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity';
+    menuBtn.className = 'dropdown dropdown-end absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-50';
     menuBtn.innerHTML = `
         <label tabindex="0" class="btn btn-xs btn-circle btn-neutral">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
             </svg>
         </label>
-        <ul tabindex="0" class="dropdown-content z-[100] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm">
+        <ul tabindex="0" class="dropdown-content z-[1000] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm">
+            ${hasStream ? `
             <li><a onclick="event.stopPropagation(); toggleFlipHorizontal('${userId}')">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -446,6 +492,7 @@ function addCamera(userId, stream, username, isLocal = false) {
                 </svg>
                 Flip Vertically
             </a></li>
+            ` : ''}
             ${isLocal ? `
                 <div class="divider my-1"></div>
                 <li><a onclick="event.stopPropagation(); reopenCameraSetup()">
@@ -509,12 +556,20 @@ function showOnMainFeed(userId) {
     if (!camera) return;
     
     const mainVideo = document.getElementById('mainVideo');
-    mainVideo.srcObject = camera.stream;
     
-    // Apply flip settings
-    const scaleX = camera.flipH ? -1 : 1;
-    const scaleY = camera.flipV ? -1 : 1;
-    mainVideo.style.transform = `scale(${scaleX}, ${scaleY})`;
+    // Only set video if there's a stream
+    if (camera.stream && camera.hasStream) {
+        mainVideo.srcObject = camera.stream;
+        mainVideo.style.display = 'block';
+        
+        // Apply flip settings
+        const scaleX = camera.flipH ? -1 : 1;
+        const scaleY = camera.flipV ? -1 : 1;
+        mainVideo.style.transform = `scale(${scaleX}, ${scaleY})`;
+    } else {
+        // No stream - hide video
+        mainVideo.style.display = 'none';
+    }
     
     document.getElementById('mainPlayerName').textContent = camera.username;
     state.currentMainCamera = userId;
@@ -522,8 +577,10 @@ function showOnMainFeed(userId) {
     // Update main camera menu
     updateMainCameraMenu(userId);
     
-    // Setup click handler for scanning
-    setupClickHandler();
+    // Setup click handler for scanning (only if has stream)
+    if (camera.hasStream) {
+        setupClickHandler();
+    }
 }
 
 /**
@@ -533,7 +590,8 @@ function updateMainCameraMenu(userId) {
     const camera = state.cameras.get(userId);
     if (!camera) return;
     
-    const isLocal = (userId === state.socket?.id);
+    const isLocal = (userId === 'local' || userId === state.socket?.id);
+    const hasStream = camera.hasStream;
     const menuContainer = document.getElementById('mainCameraMenu');
     const menuContent = document.getElementById('mainCameraMenuContent');
     
@@ -542,6 +600,7 @@ function updateMainCameraMenu(userId) {
     
     // Build menu content
     menuContent.innerHTML = `
+        ${hasStream ? `
         <li><a onclick="event.stopPropagation(); toggleFlipHorizontal('${userId}')">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -554,8 +613,9 @@ function updateMainCameraMenu(userId) {
             </svg>
             Flip Vertically
         </a></li>
+        ` : ''}
         ${isLocal ? `
-            <div class="divider my-1"></div>
+            ${hasStream ? '<div class="divider my-1"></div>' : ''}
             <li><a onclick="event.stopPropagation(); reopenCameraSetup()">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />

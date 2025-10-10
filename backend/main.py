@@ -11,7 +11,12 @@ import cv2
 import numpy as np
 from pathlib import Path
 import os
-from backend.recognizer import get_recognizer
+try:
+    # Try absolute import (for Railway deployment)
+    from backend.recognizer import get_recognizer
+except ImportError:
+    # Fall back to relative import (for local development)
+    from recognizer import get_recognizer
 from dotenv import load_dotenv
 
 # Load environment variables
