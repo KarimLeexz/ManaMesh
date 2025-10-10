@@ -9,4 +9,4 @@ services:
       - key: CARD_DATABASE_PATH
         value: card_hashes.pkl
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.11.9

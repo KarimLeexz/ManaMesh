@@ -135,11 +135,49 @@ Instead of storing 45GB of card images, we use **perceptual hashing**:
 - 🎯 High accuracy (>90% confidence typical)
 - 🌐 Always shows latest Scryfall images
 
+## Deployment
+
+### Quick Deploy (Free Hosting) 🚀
+
+**Frontend**: GitHub Pages (configured with GitHub Actions)
+**Backend**: Railway (recommended - no sleep time!)
+
+#### Steps:
+
+1. **Build database locally** (30-60 min, one-time):
+   ```powershell
+   .\prepare-deploy.ps1
+   ```
+   Then commit `card_hashes.pkl` to your repo.
+
+2. **Deploy backend to [Railway](https://railway.app)** (5 min):
+   - Sign in with GitHub
+   - New Project → Deploy from GitHub repo
+   - Select your repo → Auto-deploys! ✅
+   - Generate domain and copy URL
+   - See `RAILWAY-DEPLOY.md` for detailed guide
+
+3. **Configure frontend** (1 min):
+   - Edit `frontend/config.js` with your Railway URL
+   - Example: `window.MANAMESH_API_URL = 'https://your-app.railway.app';`
+
+4. **Enable GitHub Pages** (2 min):
+   - Go to repo Settings → Pages
+   - Source: "GitHub Actions"
+   - Commit and push - automatic deployment!
+
+5. **Your app is live!** 🎉
+   - Frontend: `https://[username].github.io/manamesh/`
+   - Backend: `https://your-app.railway.app`
+
+**Why Railway?** $5/month credit = ~500 hours uptime with no sleep time (vs Render's 15-min sleep)
+
+**Note**: `.python-version` and `runtime.txt` ensure Python 3.11.9 is used on hosting platforms.
+
 ## Future Enhancements
 
-- [ ] WebRTC multiplayer support
+- [x] WebRTC multiplayer support ✅
 - [ ] Room creation and joining
-- [ ] Multiple camera feeds
 - [ ] Card history/collection tracking
 - [ ] Batch scanning
 - [ ] OCR fallback for difficult cards

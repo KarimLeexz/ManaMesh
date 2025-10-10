@@ -10,7 +10,7 @@ env/
 ENV/
 
 # Database files
-*.pkl
+# *.pkl - COMMENTED OUT: We need card_hashes.pkl for deployment
 *.db
 
 # Environment
