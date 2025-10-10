@@ -4,7 +4,7 @@
 services:
   manamesh-backend:
     build:
-      builder: NIXPACKS
-    startCommand: uvicorn backend.main:socket_app --host 0.0.0.0 --port $PORT
+      builder: DOCKERFILE
+      dockerfilePath: Dockerfile
     healthcheckPath: /health
     healthcheckTimeout: 100
