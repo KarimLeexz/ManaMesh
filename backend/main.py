@@ -132,6 +132,21 @@ async def signal(sid, data):
             'signal': signal_data
         }, to=target_sid)
 
+@sio.on('camera-status-changed')
+async def handle_camera_status_changed(sid, data):
+    """Handle camera enable/disable notifications."""
+    enabled = data.get('enabled', False)
+    username = connected_users.get(sid, {}).get('username', 'Unknown')
+    
+    print(f"📹 Camera {'enabled' if enabled else 'disabled'} for {username} ({sid})")
+    
+    # Broadcast to all other users
+    await sio.emit('camera-status-changed', {
+        'userId': sid,
+        'enabled': enabled,
+        'username': username
+    }, skip_sid=sid)
+
 # Create ASGI app combining FastAPI and Socket.IO
 # This MUST be at module level for uvicorn to find it
 socket_app = socketio.ASGIApp(
@@ -161,6 +176,15 @@ async def serve_app_js():
     if js_path.exists():
         return FileResponse(str(js_path), media_type="application/javascript")
     return {"error": "app.js not found"}
+
+
+@app.get("/logo.png")
+async def serve_logo():
+    """Serve the logo.png file."""
+    logo_path = frontend_path / "logo.png"
+    if logo_path.exists():
+        return FileResponse(str(logo_path), media_type="image/png")
+    return {"error": "logo.png not found"}
 
 
 @app.get("/health")

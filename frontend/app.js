@@ -12,7 +12,8 @@ const state = {
     currentMainCamera: null,
     isScanning: false,
     peers: new Map(), // Map of userId -> SimplePeer instance
-    cameraEnabled: false // Track if camera is currently enabled
+    cameraEnabled: false, // Track if camera is currently enabled
+    hasJoinedRoom: false // Track if we've joined the room (to prevent peer recreation on initial setup)
 };
 
 /**
@@ -137,32 +138,60 @@ async function joinRoom() {
     // Close modal
     document.getElementById('setupModal').classList.remove('modal-open');
     
-    // Initialize Socket.IO connection
-    initializeSocketIO();
-    
-    // Try to start local camera (but don't fail if unavailable)
+    // Enable camera FIRST (before connecting to socket)
     try {
         if (state.selectedDeviceId) {
             await enableCamera();
-        } else {
-            // No camera selected - join without camera
-            console.log('Joining without camera');
-            // Add placeholder for local user
-            addCamera('local', null, state.username + ' (You)', true);
-            
-            // Show enable camera button
-            const enableBtn = document.getElementById('enableCameraBtn');
-            enableBtn.style.display = 'flex';
         }
     } catch (err) {
         console.error('Failed to enable camera on join:', err);
-        // Join without camera
-        addCamera('local', null, state.username + ' (You)', true);
-        const enableBtn = document.getElementById('enableCameraBtn');
-        enableBtn.style.display = 'flex';
+    }
+    
+    // Only initialize socket if not already connected
+    if (!state.socket || !state.socket.connected) {
+        // Initialize Socket.IO connection (AFTER camera is enabled)
+        initializeSocketIO();
+        
+        // Always add local user to camera list (even without camera)
+        if (!state.cameraEnabled) {
+            addCamera('local', null, state.username + ' (You)', true);
+        }
+        
+        // Hide "no cameras" message
+        const noCamerasMsg = document.getElementById('noCamerasMessage');
+        if (noCamerasMsg) noCamerasMsg.style.display = 'none';
     }
     
     showToast(`Welcome, ${state.username}!`, 'success');
+}
+
+/**
+ * Join room without camera
+ */
+async function joinRoomWithoutCamera() {
+    const usernameInput = document.getElementById('usernameInput');
+    state.username = usernameInput.value || 'Player';
+    
+    // Stop setup stream if any
+    const setupVideo = document.getElementById('setupVideo');
+    if (setupVideo.srcObject) {
+        setupVideo.srcObject.getTracks().forEach(track => track.stop());
+    }
+    
+    // Close modal
+    document.getElementById('setupModal').classList.remove('modal-open');
+    
+    // Initialize Socket.IO connection
+    initializeSocketIO();
+    
+    // Always add local user to camera list (without camera)
+    addCamera('local', null, state.username + ' (You)', true);
+    
+    // Hide "no cameras" message
+    const noCamerasMsg = document.getElementById('noCamerasMessage');
+    if (noCamerasMsg) noCamerasMsg.style.display = 'none';
+    
+    showToast(`Welcome, ${state.username}! Enable camera when ready.`, 'success');
 }
 
 /**
@@ -180,6 +209,7 @@ function initializeSocketIO() {
         
         // Join the room
         state.socket.emit('join', { username: state.username });
+        state.hasJoinedRoom = true;
     });
     
     state.socket.on('existing-users', ({ users }) => {
@@ -195,11 +225,11 @@ function initializeSocketIO() {
         console.log(`New user joined: ${username} (${userId})`);
         showToast(`${username} joined the room`, 'info');
         
-        // We don't initiate here - they will connect to us
-        // Just store their info for when they connect
-        if (!state.cameras.has(userId)) {
-            state.cameras.set(userId, { username, stream: null, element: null });
-        }
+        // Store their info - peer will be created when we receive their signal
+        state.cameras.set(userId, { username, stream: null, element: null });
+        
+        // Add placeholder camera for the new user
+        addCamera(userId, null, username, false);
     });
     
     state.socket.on('user-left', ({ userId }) => {
@@ -232,9 +262,18 @@ function initializeSocketIO() {
             const camera = state.cameras.get(from);
             const username = camera ? camera.username : 'Unknown';
             peer = createPeerConnection(from, username, false);
+        } else if (signal.type === 'offer' && peer && !peer.destroyed) {
+            // Ignore duplicate offers if peer already exists and is connecting
+            console.warn(`Ignoring duplicate offer from ${from} - peer already exists`);
+            return;
         }
         
         try {
+            // Check if peer is destroyed before signaling
+            if (peer.destroyed) {
+                console.warn(`Peer ${from} is destroyed, ignoring signal`);
+                return;
+            }
             // Handle the signal
             peer.signal(signal);
         } catch (err) {
@@ -246,14 +285,37 @@ function initializeSocketIO() {
         console.log('✗ Disconnected from signaling server');
         showToast('Disconnected from server', 'warning');
     });
+    
+    state.socket.on('camera-status-changed', ({ userId, enabled, username }) => {
+        console.log('[CAMERA STATUS] Received camera-status-changed event:', { userId, enabled, username });
+        
+        if (enabled) {
+            // They enabled camera - they will recreate peer connection as initiator
+            // We should destroy our old peer and wait for their new offer
+            const existingPeer = state.peers.get(userId);
+            if (existingPeer) {
+                console.log(`[CAMERA STATUS] Destroying old peer for ${username} - waiting for new connection with camera`);
+                existingPeer.destroy();
+                state.peers.delete(userId);
+            }
+            // Show placeholder temporarily until stream arrives
+            removeCamera(userId);
+            addCamera(userId, null, username, false);
+        } else {
+            // They disabled camera - just show placeholder
+            console.log(`[CAMERA STATUS] ${username} disabled camera - showing placeholder`);
+            removeCamera(userId);
+            addCamera(userId, null, username, false);
+        }
+    });
 }
 
 /**
  * Enable local camera
  */
 async function enableCamera() {
-    // Prevent multiple enables
-    if (state.cameraEnabled) {
+    // Prevent multiple enables or re-enabling while already enabled
+    if (state.cameraEnabled && state.localStream) {
         console.log('Camera already enabled, skipping...');
         return;
     }
@@ -272,30 +334,35 @@ async function enableCamera() {
         
         console.log('✓ Local camera enabled', state.localStream);
         
-        // Check if we already have a placeholder - update it
-        if (state.cameras.has('local')) {
-            removeCamera('local');
-        }
-        
-        // Add to camera list with stream
+        // Remove placeholder and add real camera
+        removeCamera('local');
         addCamera('local', state.localStream, state.username + ' (You)', true);
         
-        // Show on main feed by default
+        // Show on main feed
         showOnMainFeed('local');
         
-        // Update all existing peer connections with new stream
-        state.peers.forEach((peer, userId) => {
-            console.log(`Adding stream to existing peer: ${userId}`);
-            peer.addStream(state.localStream);
-        });
-        
-        // Update buttons
-        const enableBtn = document.getElementById('enableCameraBtn');
-        enableBtn.style.display = 'none';
-        
-        // Hide "no cameras" message
-        const noCamerasMsg = document.getElementById('noCamerasMessage');
-        if (noCamerasMsg) noCamerasMsg.style.display = 'none';
+        // If we have existing connected peers, we need to recreate connections to add stream
+        const connectedPeers = Array.from(state.peers.entries()).filter(([_, peer]) => peer.connected);
+        if (connectedPeers.length > 0) {
+            console.log('Recreating peer connections to add camera stream');
+            for (const [userId, oldPeer] of connectedPeers) {
+                const camera = state.cameras.get(userId);
+                if (camera) {
+                    // Destroy old peer
+                    oldPeer.destroy();
+                    state.peers.delete(userId);
+                    
+                    // Create new peer with stream as initiator
+                    createPeerConnection(userId, camera.username, true);
+                }
+            }
+            
+            // Notify peers that camera is enabled
+            state.socket.emit('camera-status-changed', {
+                enabled: true,
+                username: state.username
+            });
+        }
         
         showToast('Camera enabled', 'success');
     } catch (err) {
@@ -309,31 +376,32 @@ async function enableCamera() {
  * Disable local camera
  */
 function disableCamera() {
+    console.log('[DISABLE] disableCamera() called, state.cameraEnabled:', state.cameraEnabled);
     if (state.localStream && state.cameraEnabled) {
+        console.log('[DISABLE] Stopping camera tracks...');
         state.localStream.getTracks().forEach(track => track.stop());
         state.localStream = null;
         state.cameraEnabled = false;
         
-        // Remove from camera list
+        // Remove camera with stream and add placeholder
         removeCamera('local');
+        addCamera('local', null, state.username + ' (You)', true);
         
-        // Update buttons
-        const enableBtn = document.getElementById('enableCameraBtn');
-        enableBtn.style.display = 'flex';
-        
-        // Show "no cameras" message if no other cameras
-        if (state.cameras.size === 0) {
-            const noCamerasMsg = document.getElementById('noCamerasMessage');
-            if (noCamerasMsg) noCamerasMsg.style.display = 'block';
+        // Update main feed if showing local camera
+        if (state.currentMainCamera === 'local') {
+            showOnMainFeed('local');
         }
         
-        // Notify peers that we removed our stream
-        state.peers.forEach((peer, userId) => {
-            console.log(`Removing stream from peer: ${userId}`);
-            peer.removeStream(state.localStream);
+        // Notify all peers that camera is disabled
+        console.log('[DISABLE] Emitting camera-status-changed event');
+        state.socket.emit('camera-status-changed', {
+            enabled: false,
+            username: state.username
         });
         
         showToast('Camera disabled', 'info');
+    } else {
+        console.log('[DISABLE] Camera not enabled or no stream, skipping');
     }
 }
 
@@ -341,7 +409,20 @@ function disableCamera() {
  * Create WebRTC peer connection
  */
 function createPeerConnection(userId, username, initiator) {
-    console.log(`Creating peer connection with ${username} (userId: ${userId}, initiator: ${initiator})`);
+    console.log(`[CREATE PEER] Attempting to create peer for ${username} (${userId}, initiator: ${initiator})`);
+    
+    // Check if peer already exists
+    const existingPeer = state.peers.get(userId);
+    if (existingPeer && !existingPeer.destroyed) {
+        console.log(`[CREATE PEER] Peer already exists for ${userId}, returning existing peer`);
+        return existingPeer;
+    }
+    
+    if (existingPeer && existingPeer.destroyed) {
+        console.log(`[CREATE PEER] Old peer exists but is destroyed, creating new one`);
+    }
+    
+    console.log(`[CREATE PEER] Creating new SimplePeer for ${username}`);
     
     const peerConfig = {
         initiator: initiator,
@@ -358,7 +439,7 @@ function createPeerConnection(userId, username, initiator) {
     // Add stream if we have one
     if (state.localStream) {
         peerConfig.stream = state.localStream;
-        console.log('Adding local stream to peer');
+        console.log('[CREATE PEER] Adding local stream to peer');
     }
     
     const peer = new SimplePeer(peerConfig);
@@ -375,10 +456,24 @@ function createPeerConnection(userId, username, initiator) {
         console.log(`✓ Received stream from ${username}`);
         console.log('Remote stream tracks:', remoteStream.getTracks());
         
-        // Add remote camera to list
-        addCamera(userId, remoteStream, username, false);
+        // Check if stream has active tracks
+        const hasActiveTracks = remoteStream.getTracks().some(track => track.enabled && track.readyState === 'live');
         
-        showToast(`Connected to ${username}`, 'success');
+        if (hasActiveTracks) {
+            // Add remote camera with stream
+            if (state.cameras.has(userId)) {
+                removeCamera(userId);
+            }
+            addCamera(userId, remoteStream, username, false);
+            showToast(`Connected to ${username}`, 'success');
+        } else {
+            // No active tracks - show placeholder
+            if (state.cameras.has(userId)) {
+                removeCamera(userId);
+            }
+            addCamera(userId, null, username, false);
+            console.log(`${username} joined without camera`);
+        }
     });
     
     peer.on('connect', () => {
@@ -515,6 +610,12 @@ function addCamera(userId, stream, username, isLocal = false) {
     
     // Add to list
     document.getElementById('cameraList').appendChild(container);
+    
+    // Hide "no cameras" message when any camera is added
+    const noCamerasMsg = document.getElementById('noCamerasMessage');
+    if (noCamerasMsg) {
+        noCamerasMsg.style.display = 'none';
+    }
 }
 
 /**
