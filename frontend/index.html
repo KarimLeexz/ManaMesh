@@ -15,6 +15,9 @@
     <!-- SimplePeer for WebRTC -->
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
     
+    <!-- Production Configuration (optional - only loaded if file exists) -->
+    <script src="config.js" onerror="this.remove()"></script>
+    
     <style>
         #video {
             transform: scaleX(-1); /* Mirror the video */

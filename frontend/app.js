@@ -1,5 +1,6 @@
 // ManaMesh - Multiplayer MTG Card Scanner with WebRTC
-const API_URL = window.location.origin;
+// API URL configuration: uses environment variable or falls back to current origin for local dev
+const API_URL = window.MANAMESH_API_URL || window.location.origin;
 
 // State management
 const state = {
