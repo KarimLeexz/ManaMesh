@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dim">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ManaMesh</title>
+    
+    <!-- DaisyUI + Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- SimplePeer for WebRTC -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    
+    <style>
+        #video {
+            transform: scaleX(-1); /* Mirror the video */
+            max-width: 100%;
+            border-radius: 0.5rem;
+        }
+        
+        #canvas {
+            display: none;
+        }
+        
+        .card-result {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+    </style>
+</head>
+<body class="bg-base-200">
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-lg sticky top-0 z-50">
+        <div class="flex-1">
+            <a class="btn btn-ghost text-xl">🃏 ManaMesh</a>
+        </div>
+        <div class="flex-none">
+            <label class="swap swap-rotate btn btn-ghost btn-circle">
+                <!-- this hidden checkbox controls the state -->
+                <input type="checkbox" class="theme-controller" value="fantasy" />
+                
+                <!-- sun icon -->
+                <svg class="swap-off fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+                </svg>
+                
+                <!-- moon icon -->
+                <svg class="swap-on fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/>
+                </svg>
+            </label>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto p-4">
+        <!-- Camera Setup Modal (shown before joining) -->
+        <dialog id="setupModal" class="modal modal-open">
+            <div class="modal-box max-w-2xl">
+                <h3 class="font-bold text-lg mb-4">Setup Your Camera</h3>
+                
+                <div class="space-y-4">
+                    <!-- Camera Preview -->
+                    <div class="relative bg-base-300 rounded-lg overflow-hidden">
+                        <video id="setupVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
+                    </div>
+                    
+                    <!-- Camera Selection -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Select Camera</span>
+                        </label>
+                        <select id="cameraSelect" class="select select-bordered w-full">
+                            <option disabled selected>Loading cameras...</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Username Input -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Your Name</span>
+                        </label>
+                        <input type="text" id="usernameInput" placeholder="Enter your name" class="input input-bordered w-full" value="Player" />
+                    </div>
+                </div>
+                
+                <div class="modal-action">
+                    <button class="btn btn-primary btn-lg" onclick="joinRoom()">
+                        Join Room
+                    </button>
+                </div>
+            </div>
+        </dialog>
+
+        <div class="flex flex-col gap-6">
+            
+            <!-- Top: Main Camera Feed and Results -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Main Camera Feed -->
+                <div class="lg:col-span-2">
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-4">
+                        <div class="relative bg-base-300 rounded-lg overflow-hidden cursor-crosshair group" id="mainFeedContainer">
+                            <video id="mainVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
+                            <canvas id="clickCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                            
+                            <!-- Click indicator -->
+                            <div id="clickIndicator" class="absolute hidden">
+                                <div class="w-12 h-12 border-4 border-primary rounded-full animate-ping"></div>
+                            </div>
+                            
+                            <!-- Player name overlay -->
+                            <div class="absolute top-2 left-2 badge badge-neutral">
+                                <span id="mainPlayerName">Select a camera</span>
+                            </div>
+                            
+                            <!-- Three-dot menu button for main view -->
+                            <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" style="display: none;">
+                                <label tabindex="0" class="btn btn-sm btn-circle btn-neutral">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                    </svg>
+                                </label>
+                                <ul tabindex="0" class="dropdown-content z-[100] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
+                                    <!-- Menu items will be dynamically populated -->
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <!-- Loading/Scanning indicator -->
+                        <div id="scanningIndicator" class="alert alert-info mt-2" style="display: none;">
+                            <span class="loading loading-spinner loading-sm"></span>
+                            <span>Scanning card...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+                <!-- Right Column: Recognized Cards -->
+                <div class="lg:col-span-1">
+                    <div class="card bg-base-100 shadow-xl">
+                        <div class="card-body p-4">
+                            <h2 class="card-title text-base">Scanned Cards</h2>
+                            
+                            <div id="result" class="space-y-2">
+                                <div class="text-center text-base-content/50 py-8">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                                    </svg>
+                                    <p class="text-xs">No cards scanned yet.</p>
+                                    <p class="text-xs mt-1">Click on a card to scan it!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Card -->
+                    <div class="stats shadow mt-4 w-full">
+                        <div class="stat p-3">
+                            <div class="stat-title text-xs">Database</div>
+                            <div class="stat-value text-lg" id="dbStatus">Loading...</div>
+                            <div class="stat-desc text-xs" id="dbStats">Checking...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bottom: Camera Thumbnails -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="card-title text-base">Players</h2>
+                        <button class="btn btn-sm btn-primary gap-2" id="enableCameraBtn" onclick="enableCamera()" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <span>Enable Camera</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Camera Thumbnails (Horizontal) -->
+                    <div id="cameraList" class="flex gap-4 overflow-x-auto pb-2">
+                        <!-- Cameras will be added here dynamically -->
+                        <div class="text-center text-base-content/50 py-8 w-full" id="noCamerasMessage">
+                            <p class="text-sm">No cameras active. Enable your camera to get started!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer footer-center p-6 bg-base-100 text-base-content mt-8 border-t border-base-300">
+        <aside>
+            <p class="text-sm">
+                © 2025 <strong>Karim Graul</strong> - ManaMesh
+            </p>
+            <p class="text-xs opacity-70 mt-1">
+                Card data and images provided by 
+                <a href="https://scryfall.com" target="_blank" class="link link-hover font-semibold">Scryfall</a>
+            </p>
+            <p class="text-xs opacity-70 mt-1">
+                Magic: The Gathering is © Wizards of the Coast. 
+                Card images are property of Wizards of the Coast LLC.
+            </p>
+        </aside>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
