@@ -1,155 +1,247 @@
 """
-Build the ManaMesh card hash database from Scryfall bulk data.
-This creates a small (~12MB) database of perceptual hashes for fast card recognition.
+Build ORB feature database for card recognition.
+Downloads ALL card images from Scryfall and extracts ORB features.
 """
-import imagehash
-from PIL import Image
 import requests
+import cv2
+import numpy as np
 import pickle
-import io
-from tqdm import tqdm
-import os
 from pathlib import Path
+from tqdm import tqdm
+import time
+from datetime import datetime
 
 
-def build_card_database(
-    output_path: str = "card_hashes.pkl",
-    hash_size: int = 16,
-    include_all_printings: bool = True
-):
+def download_bulk_data():
+    """Download Scryfall bulk data file."""
+    print("📥 Fetching bulk data information from Scryfall...")
+    
+    # Get list of bulk data files
+    response = requests.get("https://api.scryfall.com/bulk-data")
+    response.raise_for_status()
+    bulk_data = response.json()
+    
+    # Find the "Default Cards" bulk data
+    default_cards = None
+    for item in bulk_data['data']:
+        if item['type'] == 'default_cards':
+            default_cards = item
+            break
+    
+    if not default_cards:
+        raise Exception("Could not find default cards bulk data")
+    
+    download_uri = default_cards['download_uri']
+    size_mb = default_cards['size'] / (1024 * 1024)
+    
+    print(f"📦 Downloading bulk data ({size_mb:.1f} MB)...")
+    print(f"   URI: {download_uri}")
+    
+    # Download the JSON file
+    response = requests.get(download_uri, stream=True)
+    response.raise_for_status()
+    
+    cards_data = response.json()
+    print(f"✓ Downloaded {len(cards_data):,} cards")
+    
+    return cards_data
+
+
+def download_card_image(url: str, timeout: int = 10) -> np.ndarray:
     """
-    Download Scryfall bulk data and build a perceptual hash database.
+    Download a card image and convert to OpenCV format.
     
     Args:
-        output_path: Path to save the database file
-        hash_size: Size of the perceptual hash (larger = more precise)
-        include_all_printings: Include all printings or just unique cards
+        url: Image URL
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Image as numpy array (BGR format)
     """
-    print("🃏 ManaMesh Card Database Builder")
-    print("=" * 50)
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
     
-    # Step 1: Get bulk data URL
-    print("\n📡 Fetching Scryfall bulk data metadata...")
-    bulk_url = "https://api.scryfall.com/bulk-data/default-cards"
+    # Convert to numpy array
+    image_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+    img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
     
-    try:
-        response = requests.get(bulk_url, timeout=10)
-        response.raise_for_status()
-        bulk_data = response.json()
-        download_url = bulk_data['download_uri']
+    return img
+
+
+def extract_orb_features(img: np.ndarray, max_features: int = 500) -> tuple:
+    """
+    Extract ORB features from an image.
+    
+    Args:
+        img: Image as numpy array (BGR format)
+        max_features: Maximum number of features to detect
+    
+    Returns:
+        Tuple of (keypoints, descriptors)
+    """
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Create ORB detector
+    orb = cv2.ORB_create(nfeatures=max_features)
+    
+    # Detect and compute
+    keypoints, descriptors = orb.detectAndCompute(gray, None)
+    
+    return keypoints, descriptors
+
+
+def build_database(output_path: str = "card_features.pkl", max_features: int = 500):
+    """
+    Build ORB feature database from Scryfall bulk data.
+    
+    Args:
+        output_path: Path to save the database
+        max_features: Maximum number of ORB features per card
+    """
+    print("🎴 ManaMesh - ORB Feature Database Builder")
+    print("=" * 60)
+    print(f"📊 Max features per card: {max_features}")
+    print(f"💾 Output: {output_path}")
+    print()
+    
+    # Download bulk data
+    cards_data = download_bulk_data()
+    
+    # Filter cards that have images
+    print("\n🔍 Filtering cards with images...")
+    valid_cards = []
+    for card in cards_data:
+        # Skip tokens, art cards, etc.
+        if card.get('layout') in ['token', 'emblem', 'art_series']:
+            continue
         
-        print(f"✓ Bulk data size: {bulk_data['size'] / (1024*1024):.1f} MB")
-        print(f"✓ Last updated: {bulk_data['updated_at']}")
-    except Exception as e:
-        print(f"❌ Failed to fetch bulk data metadata: {e}")
-        return
+        # Check if card has image
+        if 'image_uris' in card and 'normal' in card['image_uris']:
+            valid_cards.append(card)
     
-    # Step 2: Download card data
-    print(f"\n⬇️  Downloading card data from Scryfall...")
-    try:
-        cards_response = requests.get(download_url, timeout=60)
-        cards_response.raise_for_status()
-        cards_data = cards_response.json()
-        print(f"✓ Found {len(cards_data):,} total cards")
-    except Exception as e:
-        print(f"❌ Failed to download cards: {e}")
-        return
+    print(f"✓ Found {len(valid_cards):,} cards with images")
     
-    # Step 3: Process cards and build hash database
-    print(f"\n🔨 Building hash database (hash_size={hash_size})...")
-    hash_db = {}
-    seen_names = set()
-    errors = 0
+    # Build feature database
+    print("\n⚙️  Extracting ORB features from card images...")
+    print("   (This will take several hours)")
+    print()
+    
+    card_features = {}
+    successful = 0
     skipped = 0
+    errors = 0
     
-    for card in tqdm(cards_data, desc="Processing cards"):
-        # Skip cards without images
-        if 'image_uris' not in card:
-            skipped += 1
-            continue
-        
-        # Skip reprints if not including all printings
-        if not include_all_printings and card['name'] in seen_names:
-            skipped += 1
-            continue
-        
-        seen_names.add(card['name'])
-        
+    start_time = time.time()
+    
+    for card in tqdm(valid_cards, desc="Processing cards", unit="card"):
         try:
-            # Download card image (using small version to save bandwidth)
-            img_url = card['image_uris']['small']
-            img_response = requests.get(img_url, timeout=10)
-            img_response.raise_for_status()
-            img = Image.open(io.BytesIO(img_response.content))
+            card_name = card['name']
+            card_id = card['id']
+            image_url = card['image_uris']['normal']
             
-            # Create perceptual hash
-            card_hash = str(imagehash.phash(img, hash_size=hash_size))
+            # Download image
+            img = download_card_image(image_url)
             
-            # Store metadata (not the image!)
-            hash_db[card_hash] = {
-                'name': card['name'],
-                'scryfall_id': card['id'],
-                'image_url': card['image_uris']['normal'],  # High-res URL
-                'set': card['set'],
-                'set_name': card.get('set_name', ''),
-                'collector_number': card.get('collector_number', ''),
+            # Extract ORB features
+            keypoints, descriptors = extract_orb_features(img, max_features)
+            
+            # Skip if not enough features
+            if descriptors is None or len(keypoints) < 10:
+                tqdm.write(f"⚠️  Skipping {card_name}: Not enough features ({len(keypoints) if keypoints else 0})")
+                skipped += 1
+                continue
+            
+            # Store features and card info
+            card_features[card_id] = {
+                'descriptors': descriptors,
+                'num_features': len(keypoints),
+                'info': {
+                    'name': card_name,
+                    'scryfall_id': card_id,
+                    'image_url': image_url,
+                    'set': card.get('set', ''),
+                    'collector_number': card.get('collector_number', '')
+                }
             }
             
-            # Clean up memory
-            del img
+            successful += 1
             
-        except Exception as e:
+            # Save checkpoint every 1000 cards
+            if successful % 1000 == 0:
+                checkpoint_path = f"{output_path}.checkpoint"
+                with open(checkpoint_path, 'wb') as f:
+                    pickle.dump(card_features, f)
+                tqdm.write(f"💾 Checkpoint saved: {successful:,} cards")
+            
+            # Rate limiting - be nice to Scryfall
+            time.sleep(0.075)  # ~13 requests per second
+            
+        except requests.exceptions.Timeout:
+            tqdm.write(f"⏱️  Timeout: {card['name']}")
             errors += 1
-            if errors <= 5:  # Only show first few errors
-                tqdm.write(f"⚠️  Error processing {card.get('name', 'Unknown')}: {e}")
+        except requests.exceptions.ConnectionError as e:
+            tqdm.write(f"🔌 Connection error: {card['name']} - {str(e)}")
+            errors += 1
+        except Exception as e:
+            tqdm.write(f"❌ Error processing {card['name']}: {str(e)}")
+            errors += 1
     
-    # Step 4: Save database
-    print(f"\n💾 Saving database to {output_path}...")
-    try:
-        # Create directory if it doesn't exist
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'wb') as f:
-            pickle.dump(hash_db, f, protocol=pickle.HIGHEST_PROTOCOL)
-        
-        file_size = os.path.getsize(output_path) / (1024 * 1024)
-        
-        print(f"\n✅ Database created successfully!")
-        print(f"   Cards: {len(hash_db):,}")
-        print(f"   Size: {file_size:.1f} MB")
-        print(f"   Skipped: {skipped:,}")
-        print(f"   Errors: {errors}")
-        
-    except Exception as e:
-        print(f"❌ Failed to save database: {e}")
+    elapsed = time.time() - start_time
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    
+    print("\n" + "=" * 60)
+    print("📊 Summary:")
+    print(f"   Total cards processed: {len(valid_cards):,}")
+    print(f"   Successfully added: {successful:,}")
+    print(f"   Skipped (low features): {skipped:,}")
+    print(f"   Errors: {errors:,}")
+    print(f"   Time taken: {hours}h {minutes}m")
+    print()
+    
+    # Save final database
+    print(f"💾 Saving database to {output_path}...")
+    with open(output_path, 'wb') as f:
+        pickle.dump(card_features, f)
+    
+    # Get file size
+    size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+    print(f"✓ Database saved: {size_mb:.1f} MB")
+    
+    # Calculate average features per card
+    avg_features = sum(data['num_features'] for data in card_features.values()) / len(card_features)
+    print(f"📈 Average features per card: {avg_features:.1f}")
+    
+    print("\n✅ Database build complete!")
+    print(f"   You can now use this database with the ORB recognizer.")
 
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Build ManaMesh card hash database")
+    parser = argparse.ArgumentParser(description="Build ORB feature database for card recognition")
     parser.add_argument(
         "--output",
         "-o",
-        default="card_hashes.pkl",
-        help="Output path for database file (default: card_hashes.pkl)"
+        default="card_features.pkl",
+        help="Output database file path (default: card_features.pkl)"
     )
     parser.add_argument(
-        "--hash-size",
+        "--max-features",
+        "-f",
         type=int,
-        default=16,
-        help="Size of perceptual hash (default: 16)"
-    )
-    parser.add_argument(
-        "--unique-only",
-        action="store_true",
-        help="Include only unique card names (default: all printings)"
+        default=500,
+        help="Maximum number of ORB features per card (default: 500)"
     )
     
     args = parser.parse_args()
     
-    build_card_database(
-        output_path=args.output,
-        hash_size=args.hash_size,
-        include_all_printings=not args.unique_only
-    )
+    try:
+        build_database(args.output, args.max_features)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Build interrupted by user")
+        print("   Progress has been saved in checkpoint file")
+    except Exception as e:
+        print(f"\n❌ Build failed: {e}")
+        raise

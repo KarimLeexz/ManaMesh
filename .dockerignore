@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Development files
+*.log
+*.bak
+*_old.py
+*_new.py
+backend/main_old.py
+backend/main_new.py
+frontend/app.js.backup
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Environment files (use Railway env vars instead)
+.env
+.env.local
+
+# Deployment configs (already in Railway)
+railway.toml
+Procfile
+DEPLOYMENT.md
+
+# PowerShell scripts (Windows only)
+*.ps1
+
+# Node modules if any
+node_modules/
