@@ -40,7 +40,7 @@ class CardRecognizer:
     def recognize(
         self,
         image_array: np.ndarray,
-        threshold: int = 15
+        threshold: int = 50
     ) -> Optional[Dict[str, Any]]:
         """
         Recognize a card from an image.
@@ -48,6 +48,7 @@ class CardRecognizer:
         Args:
             image_array: Image as numpy array (BGR format from OpenCV)
             threshold: Maximum hash distance to consider a match (lower = stricter)
+                      Default 50 for real-world conditions
         
         Returns:
             Dictionary with card info and confidence, or None if no match
@@ -62,8 +63,18 @@ class CardRecognizer:
         
         img = Image.fromarray(image_rgb)
         
-        # Create perceptual hash
-        query_hash = imagehash.phash(img, hash_size=self.hash_size)
+        # Resize to a consistent size for better hashing (maintain aspect ratio)
+        # Cards are roughly 2.5x3.5 aspect ratio
+        target_height = 488  # Standard card scan height
+        aspect = img.width / img.height
+        target_width = int(target_height * aspect)
+        img_resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        
+        # Create perceptual hash from resized image
+        query_hash = imagehash.phash(img_resized, hash_size=self.hash_size)
+        
+        # Debug: Log the threshold being used
+        print(f"🎯 Using threshold: {threshold}")
         
         # Find best match
         best_match: Optional[Dict[str, Any]] = None
@@ -77,8 +88,12 @@ class CardRecognizer:
                 best_distance = distance
                 best_match = card_data
         
+        # Debug logging
+        print(f"🔍 Best match: {best_match['name'] if best_match else 'None'} (distance={best_distance})")
+        
         # Check if match is good enough
         if best_match is None or best_distance > threshold:
+            print(f"   ❌ Rejected: distance {best_distance} > threshold {threshold}")
             return None
         
         # Calculate confidence (0-1 scale)
@@ -93,7 +108,7 @@ class CardRecognizer:
     def recognize_batch(
         self,
         images: list[np.ndarray],
-        threshold: int = 15
+        threshold: int = 50
     ) -> list[Optional[Dict[str, Any]]]:
         """
         Recognize multiple cards at once.

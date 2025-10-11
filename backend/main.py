@@ -6,6 +6,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from typing import Optional
 import socketio
 import cv2
 import numpy as np
@@ -178,6 +179,97 @@ async def serve_app_js():
     return {"error": "app.js not found"}
 
 
+def preprocess_image(img: np.ndarray) -> np.ndarray:
+    """
+    Preprocess image to improve recognition quality.
+    - Enhance contrast
+    - Reduce noise
+    - Normalize lighting
+    """
+    try:
+        # Convert to LAB color space for better lighting adjustment
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to L channel
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        
+        # Merge channels
+        enhanced = cv2.merge([l, a, b])
+        
+        # Convert back to BGR
+        result = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+        # Apply slight denoising
+        result = cv2.fastNlMeansDenoisingColored(result, None, 10, 10, 7, 21)
+        
+        return result
+        
+    except Exception as e:
+        print(f"⚠️  Preprocessing failed: {e}, using original image")
+        return img
+
+
+def detect_card(img: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Detect and extract a card from an image using edge detection.
+    Returns the largest rectangular contour that looks like a card.
+    """
+    try:
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Edge detection
+        edges = cv2.Canny(blurred, 50, 150)
+        
+        # Find contours
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            return None
+        
+        # Sort contours by area (largest first)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        
+        # Look for rectangular contours
+        for contour in contours[:10]:  # Check top 10 largest contours
+            # Approximate contour to polygon
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            
+            # If it's roughly rectangular (4 corners)
+            if len(approx) == 4:
+                area = cv2.contourArea(contour)
+                img_area = img.shape[0] * img.shape[1]
+                
+                # Card should be at least 5% of image and not more than 95%
+                if 0.05 < (area / img_area) < 0.95:
+                    # Get bounding rectangle
+                    x, y, w, h = cv2.boundingRect(approx)
+                    
+                    # Check aspect ratio (cards are roughly 2.5:3.5 = 0.714)
+                    aspect_ratio = float(w) / h
+                    if 0.5 < aspect_ratio < 1.0:  # Allow some tolerance
+                        # Extract the card region with some padding
+                        padding = 10
+                        y1 = max(0, y - padding)
+                        y2 = min(img.shape[0], y + h + padding)
+                        x1 = max(0, x - padding)
+                        x2 = min(img.shape[1], x + w + padding)
+                        
+                        return img[y1:y2, x1:x2]
+        
+        return None
+        
+    except Exception as e:
+        print(f"Error in card detection: {e}")
+        return None
+
+
 @app.get("/logo.png")
 async def serve_logo():
     """Serve the logo.png file."""
@@ -226,16 +318,26 @@ async def recognize_card(file: UploadFile = File(...)):
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image file")
         
+        print(f"📸 Received image: {img.shape[1]}x{img.shape[0]}px")
+        
+        # Preprocess image for better recognition
+        img = preprocess_image(img)
+        
         # Get recognizer and process image
         recognizer = get_recognizer()
-        threshold = int(os.getenv("RECOGNITION_THRESHOLD", "15"))
+        # Use higher threshold for real-world conditions (50 works well for manual captures)
+        threshold = int(os.getenv("RECOGNITION_THRESHOLD", "50"))
+        print(f"🔧 Main.py threshold value: {threshold}, type: {type(threshold)}")
         result = recognizer.recognize(img, threshold=threshold)
         
         if result is None:
+            print(f"⚠️  No match found (threshold={threshold})")
             return {
                 "success": False,
                 "message": "No card recognized. Try better lighting or a clearer image."
             }
+        
+        print(f"✓ Recognized: {result['name']} (distance={result['distance']}, confidence={result['confidence']:.2f})")
         
         return {
             "success": True,

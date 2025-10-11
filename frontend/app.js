@@ -741,22 +741,94 @@ function setupClickHandler() {
     const container = document.getElementById('mainFeedContainer');
     const mainVideo = document.getElementById('mainVideo');
     
-    // Remove old listener
-    container.onclick = null;
+    let isDragging = false;
+    let startX, startY;
+    let selectionBox = null;
     
-    // Add click listener
-    container.onclick = async (e) => {
+    // Remove old listener
+    container.onmousedown = null;
+    container.onmousemove = null;
+    container.onmouseup = null;
+    
+    // Mouse down - start selection
+    container.onmousedown = (e) => {
         if (state.isScanning) return;
         
+        // Don't scan if clicking on the menu button or dropdown
+        if (e.target.closest('#mainCameraMenu') || e.target.closest('.dropdown-content')) {
+            return;
+        }
+        
         const rect = mainVideo.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        startX = e.clientX - rect.left;
+        startY = e.clientY - rect.top;
         
-        // Show click indicator
-        showClickIndicator(x, y);
+        isDragging = true;
         
-        // Scan at clicked position
-        await scanAtPosition(x, y);
+        // Create selection box
+        if (!selectionBox) {
+            selectionBox = document.createElement('div');
+            selectionBox.style.position = 'absolute';
+            selectionBox.style.border = '3px solid #00ff00';
+            selectionBox.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+            selectionBox.style.pointerEvents = 'none';
+            selectionBox.style.zIndex = '100';
+            container.appendChild(selectionBox);
+        }
+        
+        selectionBox.style.left = `${startX}px`;
+        selectionBox.style.top = `${startY}px`;
+        selectionBox.style.width = '0px';
+        selectionBox.style.height = '0px';
+        selectionBox.style.display = 'block';
+    };
+    
+    // Mouse move - update selection
+    container.onmousemove = (e) => {
+        if (!isDragging || !selectionBox) return;
+        
+        const rect = mainVideo.getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+        
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+        const left = Math.min(startX, currentX);
+        const top = Math.min(startY, currentY);
+        
+        selectionBox.style.left = `${left}px`;
+        selectionBox.style.top = `${top}px`;
+        selectionBox.style.width = `${width}px`;
+        selectionBox.style.height = `${height}px`;
+    };
+    
+    // Mouse up - scan selected area
+    container.onmouseup = async (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        const rect = mainVideo.getBoundingClientRect();
+        const endX = e.clientX - rect.left;
+        const endY = e.clientY - rect.top;
+        
+        const width = Math.abs(endX - startX);
+        const height = Math.abs(endY - startY);
+        
+        // Hide selection box
+        if (selectionBox) {
+            selectionBox.style.display = 'none';
+        }
+        
+        // If selection too small, treat as click (old behavior)
+        if (width < 50 || height < 50) {
+            showToast('Drag a box around the card to scan', 'info');
+            return;
+        }
+        
+        // Scan the selected region
+        const left = Math.min(startX, endX);
+        const top = Math.min(startY, endY);
+        await scanRegion(left, top, width, height);
     };
 }
 
@@ -775,9 +847,9 @@ function showClickIndicator(x, y) {
 }
 
 /**
- * Scan card at clicked position
+ * Scan card in selected region
  */
-async function scanAtPosition(x, y) {
+async function scanRegion(x, y, width, height) {
     if (!state.currentMainCamera || state.isScanning) return;
     
     state.isScanning = true;
@@ -792,29 +864,35 @@ async function scanAtPosition(x, y) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(mainVideo, 0, 0);
         
-        // Calculate relative position
-        const relX = (x / mainVideo.clientWidth) * canvas.width;
-        const relY = (y / mainVideo.clientHeight) * canvas.height;
+        // Calculate the region in video coordinates
+        const scaleX = canvas.width / mainVideo.clientWidth;
+        const scaleY = canvas.height / mainVideo.clientHeight;
         
-        // Extract region around click (300x400 px card area)
-        const cardWidth = 300;
-        const cardHeight = 400;
-        const regionX = Math.max(0, relX - cardWidth / 2);
-        const regionY = Math.max(0, relY - cardHeight / 2);
+        const regionX = Math.floor(x * scaleX);
+        const regionY = Math.floor(y * scaleY);
+        const regionWidth = Math.floor(width * scaleX);
+        const regionHeight = Math.floor(height * scaleY);
         
+        // Extract the selected region
         const regionCanvas = document.createElement('canvas');
-        regionCanvas.width = cardWidth;
-        regionCanvas.height = cardHeight;
+        regionCanvas.width = regionWidth;
+        regionCanvas.height = regionHeight;
         const regionCtx = regionCanvas.getContext('2d');
         
         regionCtx.drawImage(
             canvas,
-            regionX, regionY, cardWidth, cardHeight,
-            0, 0, cardWidth, cardHeight
+            regionX, regionY, regionWidth, regionHeight,
+            0, 0, regionWidth, regionHeight
         );
         
-        // Convert to blob
-        const blob = await new Promise(resolve => regionCanvas.toBlob(resolve, 'image/jpeg', 0.95));
+        // Convert to blob (high quality)
+        const blob = await new Promise(resolve => regionCanvas.toBlob(resolve, 'image/jpeg', 0.98));
+        
+        console.log('📸 Scanning region:', {
+            x: regionX, y: regionY,
+            width: regionWidth, height: regionHeight,
+            size: (blob.size / 1024).toFixed(2) + ' KB'
+        });
         
         // Send to API
         const formData = new FormData();
