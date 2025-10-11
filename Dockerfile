@@ -20,18 +20,29 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements
+# Copy requirements first (for better caching)
 COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+# This includes the refactored structure:
+# - backend/ (main.py, config.py, recognizer.py)
+# - backend/routes/ (health.py, recognition.py, static_files.py)
+# - backend/services/ (card_recognition.py)
+# - backend/sockets/ (signaling.py)
+# - frontend/
+# - card_features.pkl (database)
 COPY . .
 
 # Expose port (Railway sets PORT env var)
 EXPOSE 8000
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+
 # Start command - use shell form to allow variable substitution
-# Note: Railway uses socket_app (combined FastAPI + Socket.IO)
+# Uses refactored backend.main:socket_app (FastAPI + Socket.IO)
 CMD ["sh", "-c", "uvicorn backend.main:socket_app --host 0.0.0.0 --port ${PORT:-8000}"]
