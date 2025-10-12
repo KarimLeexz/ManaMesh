@@ -46,6 +46,41 @@ async def serve_logo():
     return {"error": "logo.png not found"}
 
 
+@router.get("/logo_image.png")
+async def serve_logo_image():
+    """Serve the logo icon image."""
+    logo_path = FRONTEND_DIR / "logo_image.png"
+    if logo_path.exists():
+        return FileResponse(str(logo_path), media_type="image/png")
+    return {"error": "logo_image.png not found"}
+
+
+@router.get("/logo_text.png")
+async def serve_logo_text():
+    """Serve the logo text image."""
+    logo_path = FRONTEND_DIR / "logo_text.png"
+    if logo_path.exists():
+        return FileResponse(str(logo_path), media_type="image/png")
+    return {"error": "logo_text.png not found"}
+
+
+@router.get("/styles.css")
+async def serve_styles():
+    """Serve the custom styles CSS file."""
+    css_path = FRONTEND_DIR / "styles.css"
+    if css_path.exists():
+        return FileResponse(
+            str(css_path), 
+            media_type="text/css",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    return {"error": "styles.css not found"}
+
+
 # Dynamically create routes for JS modules
 def create_js_route(filename: str):
     """Factory function to create JavaScript file routes."""

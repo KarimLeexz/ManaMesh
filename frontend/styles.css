@@ -1,0 +1,146 @@
+/**
+ * ManaMesh Custom Styles
+ * Custom CSS for card recognition interface
+ * Updated: 2025-10-12
+ */
+
+/* Video Elements */
+#video {
+    transform: scaleX(-1); /* Mirror the video */
+    max-width: 100%;
+    border-radius: 0.5rem;
+}
+
+#canvas {
+    display: none;
+}
+
+/* Card Results */
+.card-result {
+    animation: slideIn 0.3s ease-out;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.card-result img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
+
+.card-result:hover {
+    transform: scale(1.02);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Scanned cards container - fixed height */
+#result {
+    height: calc(100vh - 200px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-right: 0.25rem;
+}
+
+/* Custom scrollbar */
+#result::-webkit-scrollbar {
+    width: 4px;
+}
+
+#result::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#result::-webkit-scrollbar-thumb {
+    background: hsl(var(--bc) / 0.2);
+    border-radius: 2px;
+}
+
+#result::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--bc) / 0.3);
+}
+
+/* Search Results Dropdown */
+#searchResults {
+    scrollbar-width: thin;
+}
+
+#searchResults::-webkit-scrollbar {
+    width: 6px;
+}
+
+#searchResults::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#searchResults::-webkit-scrollbar-thumb {
+    background: hsl(var(--bc) / 0.3);
+    border-radius: 3px;
+}
+
+.search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-radius: 0.5rem;
+    margin: 0.25rem 0.5rem;
+}
+
+.search-result-item:hover {
+    background-color: hsl(var(--bc) / 0.08);
+}
+
+.search-result-item.selected {
+    background-color: hsl(var(--p) / 0.2);
+    font-weight: 500;
+}
+
+.search-result-item:first-child {
+    margin-top: 0.5rem;
+}
+
+.search-result-item:last-child {
+    margin-bottom: 0.5rem;
+}
+
+/* Card preview hover - enlarged with flip side */
+.card-hover-preview {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    display: none;
+}
+
+.card-hover-preview.active {
+    display: flex;
+    gap: 1rem;
+    animation: fadeIn 0.2s ease;
+}
+
+.card-hover-preview img {
+    width: 360px;
+    height: auto;
+    border-radius: 14px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}

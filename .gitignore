@@ -10,7 +10,10 @@ env/
 ENV/
 
 # Database files
-# *.pkl - COMMENTED OUT: We need card_hashes.pkl for deployment
+# Keep card_features.pkl for deployment (main database)
+# Ignore temporary/test files
+card_features.pkl.checkpoint
+card_features_test.pkl
 *.db
 
 # Environment

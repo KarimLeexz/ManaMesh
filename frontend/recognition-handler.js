@@ -192,22 +192,9 @@ async function scanRegion(x, y, width, height, API_URL, state, displayCard, show
  * @param {Object} card - Card data
  */
 function displayCard(card) {
-    const confidencePercent = (card.confidence * 100).toFixed(1);
-    const confidenceClass = card.confidence > 0.9 ? 'badge-success' : 
-                           card.confidence > 0.7 ? 'badge-warning' : 'badge-error';
-    
     const cardHTML = `
-        <div class="card-result">
-            <div class="card bg-base-200 shadow-sm image-full">
-                <figure><img src="${card.image_url}" alt="${card.name}" /></figure>
-                <div class="card-body p-2">
-                    <h3 class="card-title text-xs">${card.name}</h3>
-                    <div class="flex gap-1 text-xs">
-                        <span class="badge badge-xs badge-outline">${card.set.toUpperCase()}</span>
-                        <span class="badge badge-xs ${confidenceClass}">${confidencePercent}%</span>
-                    </div>
-                </div>
-            </div>
+        <div class="card-result" data-scryfall-id="${card.scryfall_id}">
+            <img src="${card.image_url}" alt="${card.name}" class="w-full rounded-lg shadow-lg" />
         </div>
     `;
     
@@ -219,6 +206,70 @@ function displayCard(card) {
     } else {
         resultDiv.insertAdjacentHTML('afterbegin', cardHTML);
     }
+
+    // Setup hover preview for the newly added card
+    setupCardHoverPreview(card.scryfall_id);
+}
+
+// Cache for card data from Scryfall API
+const cardDataCache = {};
+
+/**
+ * Setup hover preview for a card
+ * @param {string} scryfallId - Scryfall card ID
+ */
+async function setupCardHoverPreview(scryfallId) {
+    const cardElement = document.querySelector(`[data-scryfall-id="${scryfallId}"]`);
+    if (!cardElement) return;
+
+    const previewContainer = document.getElementById('cardHoverPreview');
+    let cardData = null;
+
+    cardElement.addEventListener('mouseenter', async (e) => {
+        // Fetch card data if not cached
+        if (!cardDataCache[scryfallId]) {
+            try {
+                const response = await fetch(`https://api.scryfall.com/cards/${scryfallId}`);
+                cardData = await response.json();
+                cardDataCache[scryfallId] = cardData;
+            } catch (err) {
+                console.error('Failed to fetch card data:', err);
+                return;
+            }
+        } else {
+            cardData = cardDataCache[scryfallId];
+        }
+
+        // Build preview HTML
+        let previewHTML = '';
+        
+        // Check if double-faced card
+        if (cardData.card_faces && cardData.card_faces.length > 1) {
+            // Show both faces
+            previewHTML = `
+                <img src="${cardData.card_faces[0].image_uris.large}" alt="${cardData.card_faces[0].name}" />
+                <img src="${cardData.card_faces[1].image_uris.large}" alt="${cardData.card_faces[1].name}" />
+            `;
+        } else {
+            // Single-faced card - just show larger version
+            const imageUrl = cardData.image_uris?.large || cardData.image_uris?.normal;
+            previewHTML = `<img src="${imageUrl}" alt="${cardData.name}" />`;
+        }
+
+        previewContainer.innerHTML = previewHTML;
+        previewContainer.classList.add('active');
+
+        // Position preview to the left of the card
+        const rect = cardElement.getBoundingClientRect();
+        const previewWidth = cardData.card_faces?.length > 1 ? 740 : 370; // 360px per card + gap
+        previewContainer.style.left = `${rect.left - previewWidth - 20}px`;
+        previewContainer.style.top = `${rect.top}px`;
+    });
+
+    cardElement.addEventListener('mouseleave', () => {
+        previewContainer.classList.remove('active');
+        previewContainer.innerHTML = '';
+    });
 }
 
 /**
@@ -235,17 +286,182 @@ async function checkHealth(API_URL) {
         
         if (health.database_loaded) {
             statusEl.textContent = '✓ Ready';
-            statusEl.classList.add('text-success');
             statsEl.textContent = `${health.stats.total_cards.toLocaleString()} cards`;
         } else {
             statusEl.textContent = '⚠ No DB';
-            statusEl.classList.add('text-warning');
-            statsEl.textContent = 'Build database';
+            statsEl.textContent = '';
         }
     } catch (err) {
         console.error('Health check failed:', err);
         document.getElementById('dbStatus').textContent = '✗ Offline';
-        document.getElementById('dbStats').textContent = 'Cannot connect';
+        document.getElementById('dbStats').textContent = '';
+    }
+}
+
+// Card search functionality
+let searchTimeout = null;
+let selectedIndex = -1;
+let searchResultsData = [];
+
+/**
+ * Setup card search with autocomplete
+ */
+function setupCardSearch() {
+    const searchInput = document.getElementById('cardSearch');
+    const searchResults = document.getElementById('searchResults');
+    
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim();
+        
+        // Clear timeout
+        if (searchTimeout) clearTimeout(searchTimeout);
+        
+        if (query.length < 2) {
+            searchResults.classList.add('hidden');
+            searchResultsData = [];
+            selectedIndex = -1;
+            return;
+        }
+        
+        // Debounce search (200ms)
+        searchTimeout = setTimeout(() => searchCards(query), 200);
+    });
+    
+    // Keyboard navigation
+    searchInput.addEventListener('keydown', (e) => {
+        const items = searchResults.querySelectorAll('.search-result-item');
+        
+        if (items.length === 0) return;
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (selectedIndex < items.length - 1) {
+                selectedIndex++;
+                updateSelection(items);
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (selectedIndex > 0) {
+                selectedIndex--;
+                updateSelection(items);
+            } else {
+                selectedIndex = -1;
+                updateSelection(items);
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectedIndex >= 0 && searchResultsData[selectedIndex]) {
+                selectCard(searchResultsData[selectedIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            searchResults.classList.add('hidden');
+            selectedIndex = -1;
+            searchInput.blur();
+        }
+    });
+    
+    // Click outside to close
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.classList.add('hidden');
+        }
+    });
+}
+
+/**
+ * Search for cards using Scryfall autocomplete
+ */
+async function searchCards(query) {
+    const searchResults = document.getElementById('searchResults');
+    
+    try {
+        // Use Scryfall autocomplete API for unique card names
+        const response = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        
+        searchResultsData = data.data || [];
+        selectedIndex = -1;
+        
+        if (searchResultsData.length === 0) {
+            searchResults.innerHTML = '<div class="p-3 text-sm text-center opacity-50">No cards found</div>';
+            searchResults.classList.remove('hidden');
+            return;
+        }
+        
+        // Display results
+        const html = searchResultsData.map((cardName, index) => `
+            <div class="search-result-item text-sm" data-index="${index}">
+                ${cardName}
+            </div>
+        `).join('');
+        
+        searchResults.innerHTML = html;
+        searchResults.classList.remove('hidden');
+        
+        // Add click handlers and hover
+        searchResults.querySelectorAll('.search-result-item').forEach((item, index) => {
+            item.addEventListener('click', () => {
+                selectCard(searchResultsData[index]);
+            });
+            
+            item.addEventListener('mouseenter', () => {
+                selectedIndex = index;
+                updateSelection(searchResults.querySelectorAll('.search-result-item'));
+            });
+        });
+        
+    } catch (err) {
+        console.error('Search failed:', err);
+        searchResults.innerHTML = '<div class="p-3 text-sm text-center text-error">Search failed</div>';
+        searchResults.classList.remove('hidden');
+    }
+}
+
+/**
+ * Update selected item in dropdown
+ */
+function updateSelection(items) {
+    items.forEach((item, index) => {
+        item.classList.remove('selected');
+        if (index === selectedIndex) {
+            item.classList.add('selected');
+            // Smooth scroll into view
+            item.scrollIntoView({ 
+                block: 'nearest', 
+                behavior: 'smooth' 
+            });
+        }
+    });
+}
+
+/**
+ * Select a card and display it
+ */
+async function selectCard(cardName) {
+    const searchInput = document.getElementById('cardSearch');
+    const searchResults = document.getElementById('searchResults');
+    
+    // Close dropdown
+    searchResults.classList.add('hidden');
+    searchInput.value = '';
+    
+    try {
+        // Fetch card by exact name (returns latest/most common printing)
+        const response = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}`);
+        const cardData = await response.json();
+        
+        // Display card using same function as recognition
+        displayCard({
+            name: cardData.name,
+            image_url: cardData.image_uris?.normal || cardData.card_faces?.[0]?.image_uris?.normal,
+            scryfall_id: cardData.id,
+            set: cardData.set,
+            confidence: 1.0 // Manual search = 100% confidence
+        });
+        
+    } catch (err) {
+        console.error('Failed to fetch card:', err);
     }
 }
 
@@ -254,5 +470,6 @@ export {
     setupClickHandler,
     scanRegion,
     displayCard,
-    checkHealth
+    checkHealth,
+    setupCardSearch
 };

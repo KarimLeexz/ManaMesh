@@ -105,6 +105,18 @@ def build_database(output_path: str = "card_features.pkl", max_features: int = 5
     print(f"💾 Output: {output_path}")
     print()
     
+    # Check for existing checkpoint
+    checkpoint_path = f"{output_path}.checkpoint"
+    card_features = {}
+    
+    if Path(checkpoint_path).exists():
+        print(f"📦 Found checkpoint file: {checkpoint_path}")
+        print("   Loading existing progress...")
+        with open(checkpoint_path, 'rb') as f:
+            card_features = pickle.load(f)
+        print(f"✓ Loaded {len(card_features):,} cards from checkpoint")
+        print()
+    
     # Download bulk data
     cards_data = download_bulk_data()
     
@@ -127,8 +139,7 @@ def build_database(output_path: str = "card_features.pkl", max_features: int = 5
     print("   (This will take several hours)")
     print()
     
-    card_features = {}
-    successful = 0
+    successful = len(card_features)
     skipped = 0
     errors = 0
     
@@ -138,6 +149,11 @@ def build_database(output_path: str = "card_features.pkl", max_features: int = 5
         try:
             card_name = card['name']
             card_id = card['id']
+            
+            # Skip if already processed in checkpoint
+            if card_id in card_features:
+                continue
+            
             image_url = card['image_uris']['normal']
             
             # Download image

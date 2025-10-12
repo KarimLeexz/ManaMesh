@@ -36,7 +36,8 @@ import {
     setupClickHandler,
     scanRegion,
     displayCard,
-    checkHealth
+    checkHealth,
+    setupCardSearch
 } from './recognition-handler.js';
 
 // API URL configuration
@@ -63,6 +64,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initializeTheme();
     await checkHealth(API_URL);
     await initializeCameraSetup(state, showToast);
+    setupCardSearch();
 });
 
 /**

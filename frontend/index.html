@@ -9,6 +9,9 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+    
     <!-- Socket.IO Client -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
@@ -17,42 +20,28 @@
     
     <!-- Production Configuration (optional - only loaded if file exists) -->
     <script src="config.js" onerror="this.remove()"></script>
-    
-    <style>
-        #video {
-            transform: scaleX(-1); /* Mirror the video */
-            max-width: 100%;
-            border-radius: 0.5rem;
-        }
-        
-        #canvas {
-            display: none;
-        }
-        
-        .card-result {
-            animation: slideIn 0.3s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateX(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-    </style>
 </head>
 <body class="bg-base-200">
     <!-- Navbar -->
     <div class="navbar bg-base-100 shadow-lg sticky top-0 z-50">
         <div class="flex-1">
-            <a class="btn btn-ghost">
-                <img src="logo.png" alt="ManaMesh" class="h-12" />
+            <a class="btn btn-ghost normal-case text-xl gap-2">
+                <img src="logo_image.png" alt="ManaMesh Icon" class="h-10 w-10 object-contain" />
+                <img src="logo_text.png" alt="ManaMesh" class="h-8 object-contain" />
             </a>
         </div>
+        
+        <!-- Center: Database Stats -->
+        <div class="flex-none mx-4">
+            <div class="badge badge-lg gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                </svg>
+                <span id="dbStatus" class="text-xs">Loading...</span>
+                <span id="dbStats" class="text-xs opacity-70">•</span>
+            </div>
+        </div>
+        
         <div class="flex-none">
             <label class="swap swap-rotate btn btn-ghost btn-circle">
                 <!-- this hidden checkbox controls the state -->
@@ -114,96 +103,111 @@
             </div>
         </dialog>
 
-        <div class="flex flex-col gap-6">
+        <div class="flex flex-col gap-4 max-w-screen-2xl mx-auto">
             
-            <!-- Top: Main Camera Feed and Results -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Grid: Camera + Players on Left, Scanned Cards on Right -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 
-                <!-- Main Camera Feed -->
-                <div class="lg:col-span-2">
-                <div class="card bg-base-100 shadow-xl">
-                    <div class="card-body p-4">
-                        <div class="relative bg-base-300 rounded-lg overflow-hidden cursor-crosshair group" id="mainFeedContainer">
-                            <video id="mainVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
-                            <canvas id="clickCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
-                            
-                            <!-- Click indicator -->
-                            <div id="clickIndicator" class="absolute hidden">
-                                <div class="w-12 h-12 border-4 border-primary rounded-full animate-ping"></div>
-                            </div>
-                            
-                            <!-- Player name overlay -->
-                            <div class="absolute top-2 left-2 badge badge-neutral">
-                                <span id="mainPlayerName">Select a camera</span>
-                            </div>
-                            
-                            <!-- Three-dot menu button for main view -->
-                            <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-50" style="display: none;">
-                                <label tabindex="0" class="btn btn-sm btn-circle btn-neutral">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                                    </svg>
-                                </label>
-                                <ul tabindex="0" class="dropdown-content z-[1000] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
-                                    <!-- Menu items will be dynamically populated -->
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <!-- Loading/Scanning indicator -->
-                        <div id="scanningIndicator" class="alert alert-info mt-2" style="display: none;">
-                            <span class="loading loading-spinner loading-sm"></span>
-                            <span>Scanning card...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-                <!-- Right Column: Recognized Cards -->
-                <div class="lg:col-span-1">
+                <!-- Left Side: Camera Feed + Players (10 columns) -->
+                <div class="lg:col-span-10 flex flex-col gap-4">
+                    
+                    <!-- Main Camera Feed -->
                     <div class="card bg-base-100 shadow-xl">
                         <div class="card-body p-4">
-                            <h2 class="card-title text-base">Scanned Cards</h2>
+                            <div class="relative bg-base-300 rounded-lg overflow-hidden cursor-crosshair group" id="mainFeedContainer">
+                                <video id="mainVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
+                                <canvas id="clickCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                                
+                                <!-- Click indicator -->
+                                <div id="clickIndicator" class="absolute hidden">
+                                    <div class="w-12 h-12 border-4 border-primary rounded-full animate-ping"></div>
+                                </div>
+                                
+                                <!-- Player name overlay -->
+                                <div class="absolute top-2 left-2 badge badge-neutral">
+                                    <span id="mainPlayerName">Select a camera</span>
+                                </div>
+                                
+                                <!-- Three-dot menu button for main view -->
+                                <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-50" style="display: none;">
+                                    <label tabindex="0" class="btn btn-sm btn-circle btn-neutral">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                        </svg>
+                                    </label>
+                                    <ul tabindex="0" class="dropdown-content z-[1000] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
+                                        <!-- Menu items will be dynamically populated -->
+                                    </ul>
+                                </div>
+                            </div>
                             
-                            <div id="result" class="space-y-2">
-                                <div class="text-center text-base-content/50 py-8">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                                    </svg>
-                                    <p class="text-xs">No cards scanned yet.</p>
-                                    <p class="text-xs mt-1">Click on a card to scan it!</p>
+                            <!-- Loading/Scanning indicator -->
+                            <div id="scanningIndicator" class="alert alert-info mt-2" style="display: none;">
+                                <span class="loading loading-spinner loading-sm"></span>
+                                <span>Scanning card...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Players Section -->
+                    <div class="card bg-base-100 shadow-xl">
+                        <div class="card-body p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h2 class="card-title text-base">Players</h2>
+                            </div>
+                            
+                            <!-- Camera Thumbnails (Horizontal) -->
+                            <div id="cameraList" class="flex gap-4 justify-start flex-wrap pb-2">
+                                <!-- Cameras will be added here dynamically -->
+                                <div class="text-center text-base-content/50 py-4 w-full" id="noCamerasMessage">
+                                    <p class="text-sm">No cameras active. Enable your camera to get started!</p>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    
-                    <!-- Stats Card -->
-                    <div class="stats shadow mt-4 w-full">
-                        <div class="stat p-3">
-                            <div class="stat-title text-xs">Database</div>
-                            <div class="stat-value text-lg" id="dbStatus">Loading...</div>
-                            <div class="stat-desc text-xs" id="dbStats">Checking...</div>
-                        </div>
-                    </div>
                 </div>
-            </div>
             
-            <!-- Bottom: Camera Thumbnails -->
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <h2 class="card-title text-base">Players</h2>
-                    </div>
-                    
-                    <!-- Camera Thumbnails (Horizontal, Centered, No Scroll) -->
-                    <div id="cameraList" class="flex gap-4 justify-center flex-wrap pb-2">
-                        <!-- Cameras will be added here dynamically -->
-                        <div class="text-center text-base-content/50 py-8 w-full" id="noCamerasMessage">
-                            <p class="text-sm">No cameras active. Enable your camera to get started!</p>
+                <!-- Right Side: Scanned Cards (2 columns) -->
+                <div class="lg:col-span-2">
+                    <div class="card bg-base-100 shadow-xl h-full">
+                        <div class="card-body p-3">
+                            <h2 class="card-title text-sm mb-2">Scanned Cards</h2>
+                            
+                            <!-- Card Search Input -->
+                            <div class="relative mb-3">
+                                <input 
+                                    type="text" 
+                                    id="cardSearch" 
+                                    placeholder="Search cards..." 
+                                    class="input input-bordered input-sm w-full pr-8"
+                                    autocomplete="off"
+                                />
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 absolute right-3 top-2.5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                
+                                <!-- Search Results Dropdown -->
+                                <div id="searchResults" class="absolute w-full mt-1 bg-base-100 rounded-lg shadow-xl border border-base-300 max-h-64 overflow-y-auto z-50 hidden">
+                                    <!-- Results will be populated here -->
+                                </div>
+                            </div>
+                            
+                            <div id="result">
+                                <div class="text-center text-base-content/50 py-8">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                                    </svg>
+                                    <p class="text-xs">No cards scanned</p>
+                                    <p class="text-xs mt-1 opacity-70">Drag to scan</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+    <!-- Card hover preview container -->
+    <div id="cardHoverPreview" class="card-hover-preview"></div>
         </div>
     </div>
 
