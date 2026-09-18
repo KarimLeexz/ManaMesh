@@ -87,6 +87,7 @@ Navigate to: **http://localhost:8000**
 2. **Point at Card** - Position a Magic card in front of your camera
 3. **Click the card** in the video - The app looks for a card where you clicked and identifies it
 4. **View Results** - High-res card image appears in the sidebar
+5. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
 
 ### Tips for Best Results
 

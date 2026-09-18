@@ -5,8 +5,10 @@
 
 const MAX_UPLOAD_SIDE = 2560;   // longest side of the frame sent to the server, in pixels
 const OUTLINE_MS = 2500;        // how long a found card's outline stays on the video
+const SUGGESTION_MS = 12000;    // how long the suggestion buttons stay before dismissing themselves
 
 let outlineTimer = null;
+let suggestionTimer = null;
 
 /**
  * Convert a position between the on-screen video and the raw video frame. The video may be
@@ -38,8 +40,8 @@ function setupClickHandler(state, scanAt) {
     container.onclick = (e) => {
         if (state.isScanning) return;
 
-        // Don't scan if clicking on the menu button or dropdown
-        if (e.target.closest('#mainCameraMenu') || e.target.closest('.dropdown-content')) {
+        // Don't scan if clicking on the menu button, dropdown or the suggestion buttons
+        if (e.target.closest('#mainCameraMenu') || e.target.closest('.dropdown-content') || e.target.closest('#suggestions')) {
             return;
         }
 
@@ -95,10 +97,15 @@ async function scanAt(fx, fy, click, API_URL, state, displayCard, showToast) {
         if (!response.ok) {
             showToast(result.detail || 'Scan failed', 'error');
         } else if (result.success) {
+            hideSuggestions();
             displayCard(result.card);
             drawOutline(result.card, state);
             showToast(`Found: ${result.card.name}`, 'success');
+        } else if (result.suggestions?.length) {
+            drawOutline({ corners: result.corners, name: 'not sure' }, state, '#ffd000');
+            showSuggestions(result.suggestions, displayCard, showToast);
         } else {
+            hideSuggestions();
             showToast(result.message || 'No card found there', 'warning');
         }
     } catch (err) {
@@ -112,11 +119,60 @@ async function scanAt(fx, fy, click, API_URL, state, displayCard, showToast) {
 }
 
 /**
+ * Offer the best guesses for an unsure scan as buttons over the video: one tap confirms
+ * a guess, and a wrong guess costs nothing (dismiss it or click the card again).
+ * @param {Object[]} suggestions - Up to 3 cards: { name, scryfall_id, image_url, ... }
+ * @param {Function} displayCard - Function to display a recognized card
+ * @param {Function} showToast - Toast notification function
+ */
+function showSuggestions(suggestions, displayCard, showToast) {
+    hideSuggestions();
+
+    const panel = document.createElement('div');
+    panel.id = 'suggestions';
+    panel.className = 'absolute bottom-3 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center justify-center gap-2 ' +
+                      'rounded-lg bg-base-300/95 p-2 shadow-xl max-w-[95%]';
+
+    const label = document.createElement('span');
+    label.className = 'text-xs opacity-80 px-1';
+    label.textContent = 'Not sure. Is it:';
+    panel.appendChild(label);
+
+    for (const card of suggestions) {
+        const button = document.createElement('button');
+        button.className = 'btn btn-sm btn-warning';
+        button.textContent = card.name;
+        button.onclick = (e) => {
+            e.stopPropagation();
+            displayCard(card);
+            showToast(`Added: ${card.name}`, 'success');
+            hideSuggestions();
+        };
+        panel.appendChild(button);
+    }
+
+    const close = document.createElement('button');
+    close.className = 'btn btn-sm btn-ghost btn-circle';
+    close.textContent = '✕';
+    close.onclick = (e) => { e.stopPropagation(); hideSuggestions(); };
+    panel.appendChild(close);
+
+    document.getElementById('mainFeedContainer').appendChild(panel);
+    suggestionTimer = setTimeout(hideSuggestions, SUGGESTION_MS);
+}
+
+function hideSuggestions() {
+    clearTimeout(suggestionTimer);
+    document.getElementById('suggestions')?.remove();
+}
+
+/**
  * Outline the found card on the video for a moment, with its name
  * @param {Object} card - Recognized card, with 'corners' as fractions of the raw frame
  * @param {Object} state - Application state
+ * @param {string} color - Outline colour (green for a sure match, amber for a guess)
  */
-function drawOutline(card, state) {
+function drawOutline(card, state, color = '#00ff88') {
     if (!card.corners) return;
 
     const mainVideo = document.getElementById('mainVideo');
@@ -135,10 +191,10 @@ function drawOutline(card, state) {
     ctx.beginPath();
     points.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(0, 255, 136, 0.12)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
     ctx.fill();
     ctx.lineWidth = 3;
-    ctx.strokeStyle = '#00ff88';
+    ctx.strokeStyle = color;
     ctx.stroke();
 
     // Name tag above the card's top edge
@@ -150,7 +206,7 @@ function drawOutline(card, state) {
     const labelY = Math.max(top - 26, 0);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
     ctx.fillRect(left, labelY, width, 22);
-    ctx.fillStyle = '#00ff88';
+    ctx.fillStyle = color;
     ctx.fillText(label, left + 6, labelY + 16);
 
     clearTimeout(outlineTimer);
