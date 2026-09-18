@@ -36,30 +36,30 @@ You should see: `Python 3.12.x` (or similar)
 cd d:\Repos\ManaMesh
 
 # Create virtual environment
-python -m venv venv
+python -m venv .venv
 
 # Activate virtual environment
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 
 # If you get an execution policy error, run:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 # Then try activating again
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-## Step 4: Build Card Database
+## Step 4: Build Card Index
 
-This downloads Scryfall data and builds the hash database (~30-60 mins):
+This downloads Scryfall data and builds the card hash index (~30-90 mins, resumable):
 
 ```powershell
-python backend/build_database.py
+python backend/build_index.py
 ```
 
-**Note**: This creates a `card_hashes.pkl` file (~12MB) with all MTG card hashes.
+**Note**: This creates a `card_index.npz` file (~5-10MB) with a hash for every card artwork.
 
 ## Step 5: Create .env File
 
@@ -100,11 +100,11 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ### "Cannot activate virtual environment"
 Try using the .bat file instead:
 ```powershell
-.\venv\Scripts\activate.bat
+.\.venv\Scripts\activate.bat
 ```
 
 ### "pip install fails"
-Make sure you're in the activated virtual environment (you should see `(venv)` in your prompt)
+Make sure you're in the activated virtual environment (you should see `(.venv)` in your prompt)
 
 ### Port 8000 already in use
 ```powershell
@@ -118,14 +118,14 @@ uvicorn backend.main:app --reload --port 8080
 
 ```powershell
 # 1. Create and activate venv
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Build database (takes ~30-60 minutes)
-python backend/build_database.py
+# 3. Build card index (takes ~30-90 minutes)
+python backend/build_index.py
 
 # 4. Start server
 python backend/main.py
@@ -141,7 +141,7 @@ If you prefer to install globally (not recommended but works):
 
 ```powershell
 pip install -r requirements.txt
-python backend/build_database.py
+python backend/build_index.py
 python backend/main.py
 ```
 
