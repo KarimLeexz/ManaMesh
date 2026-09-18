@@ -43,6 +43,7 @@ _CLICK_CROP_SIZES = (0.2, 0.27, 0.35, 0.45, 0.58, 0.75, 0.95)
 _CLICK_MAX_DISTANCE = 76   # a click is held to a slightly stricter limit than the general threshold...
 _CLICK_SURE_DISTANCE = 40  # ...and beyond this distance the match must also stand apart from look-alikes
 _CLICK_MIN_MARGIN = 14
+_CROP_PIXELS = 720         # every crop is analysed at this height, in pixels
 _CLICK_OFFSETS = (0.0,)    # crop centre shifts around the click, as fractions of the crop size (per axis)
 _CROP_ASPECT = 0.8         # crop width / height: a bit roomier than a card (0.716)
 _CLICK_MARGIN = 0.08       # a click within this fraction of the card's short side outside its outline still counts
@@ -141,10 +142,16 @@ class CardRecognizer:
                     crop = img[y0:int(y0 + crop_h), x0:int(x0 + crop_w)]
                     if crop.size == 0:
                         continue
-                    result = self.recognize(crop, point=(x - x0, y - y0))
+                    ch, cw = crop.shape[:2]
+                    # Analyse every crop at the same pixel size, so the outline finder behaves alike
+                    # whether the camera gives 720p, 1080p or 4K
+                    zoom = _CROP_PIXELS / ch
+                    if abs(zoom - 1) > 0.05:
+                        crop = cv2.resize(crop, None, fx=zoom, fy=zoom,
+                                          interpolation=cv2.INTER_CUBIC if zoom > 1 else cv2.INTER_AREA)
+                    result = self.recognize(crop, point=((x - x0) * zoom, (y - y0) * zoom))
                     if result is not None and (best is None or result["distance"] < best["distance"]):
                         # express the outline relative to the whole image, not the crop
-                        ch, cw = crop.shape[:2]
                         result["corners"] = [[round((px * cw + x0) / w, 4), round((py * ch + y0) / h, 4)] for px, py in result["corners"]]
                         best = result
 
