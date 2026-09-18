@@ -34,7 +34,7 @@ import {
 
 import {
     setupClickHandler,
-    scanRegion,
+    scanAt,
     displayCard,
     checkHealth,
     setupCardSearch
@@ -62,8 +62,8 @@ const state = {
  * ones it needs (enableCamera, disableCamera, initializeSocketIO and
  * createPeerConnection all destructure a subset of this object).
  */
-const scan = (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast);
-const showMain = (userId) => showOnMainFeed(userId, state, () => setupClickHandler(state, scan, showToast));
+const scan = (fx, fy, click) => scanAt(fx, fy, click, API_URL, state, displayCard, showToast);
+const showMain = (userId) => showOnMainFeed(userId, state, () => setupClickHandler(state, scan));
 
 const handlers = {
     showToast,
