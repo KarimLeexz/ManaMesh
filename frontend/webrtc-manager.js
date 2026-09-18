@@ -125,6 +125,67 @@ function initializeSocketIO(API_URL, state, { createPeerConnection, addCamera, r
     });
 }
 
+// Outgoing video: high bitrate and resolution capped at 1080p so peers see card text clearly
+// without every player having to encode 4K for every other player
+const MAX_VIDEO_BITRATE = 8_000_000;   // bits per second
+const MAX_SEND_WIDTH = 1920;
+
+/**
+ * Configure the outgoing video of a peer connection for detail: a high bitrate ceiling,
+ * and when bandwidth or CPU runs short, drop frame rate rather than resolution.
+ * (The browser's defaults favour smooth motion and quietly shrink the picture.)
+ * @param {SimplePeer} peer
+ */
+async function tuneVideoSender(peer) {
+    const pc = peer._pc;   // SimplePeer keeps its RTCPeerConnection here
+    if (!pc) return;
+
+    for (const sender of pc.getSenders()) {
+        if (!sender.track || sender.track.kind !== 'video') continue;
+
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+
+        const width = sender.track.getSettings().width || MAX_SEND_WIDTH;
+        params.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
+        params.encodings[0].scaleResolutionDownBy = Math.max(1, width / MAX_SEND_WIDTH);
+        params.degradationPreference = 'maintain-resolution';
+
+        try {
+            await sender.setParameters(params);
+            console.log(`[QUALITY] Sending ${Math.round(width / params.encodings[0].scaleResolutionDownBy)}px wide, up to ${MAX_VIDEO_BITRATE / 1e6} Mbps`);
+        } catch (err) {
+            console.warn('[QUALITY] Could not tune video sender:', err);
+        }
+    }
+}
+
+/**
+ * Summarise what every peer connection is really sending and receiving right now.
+ * Handy in the browser console: `await streamStats()`
+ * @param {Object} state - Application state object
+ * @returns {Promise<Object[]>}
+ */
+async function streamStats(state) {
+    const report = [];
+    for (const [userId, peer] of state.peers) {
+        if (!peer._pc) continue;
+        const stats = await peer._pc.getStats();
+        stats.forEach(s => {
+            if (s.kind !== 'video' || (s.type !== 'outbound-rtp' && s.type !== 'inbound-rtp')) return;
+            report.push({
+                peer: userId,
+                direction: s.type === 'outbound-rtp' ? 'sending' : 'receiving',
+                size: `${s.frameWidth}x${s.frameHeight}`,
+                fps: Math.round(s.framesPerSecond || 0),
+                bytes: s.type === 'outbound-rtp' ? s.bytesSent : s.bytesReceived,
+                limitedBy: s.qualityLimitationReason || 'none'
+            });
+        });
+    }
+    return report;
+}
+
 /**
  * Create WebRTC peer connection with SimplePeer
  * @param {string} userId - Remote user ID
@@ -206,6 +267,7 @@ function createPeerConnection(userId, username, initiator, state, { removeCamera
     
     peer.on('connect', () => {
         console.log(`✓ Peer connected: ${username}`);
+        tuneVideoSender(peer);
     });
     
     peer.on('error', err => {
@@ -234,5 +296,6 @@ function createPeerConnection(userId, username, initiator, state, { removeCamera
 // ES6 Module Exports
 export {
     initializeSocketIO,
-    createPeerConnection
+    createPeerConnection,
+    streamStats
 };
