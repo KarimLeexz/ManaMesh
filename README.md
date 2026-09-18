@@ -7,8 +7,8 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 ## Features
 
 - 📷 **Real-time Webcam Capture** - High-quality video feed (1920x1080)
-- 🔍 **Fast Card Recognition** - Perceptual hashing for instant card identification
-- 💾 **Lightweight Database** - Only ~12MB for 25,000+ cards
+- 🔍 **Fast Card Recognition** - Card outline detection + perceptual hashing, ~10 ms per scan
+- 💾 **Lightweight Index** - A few MB covering every card artwork on Scryfall
 - 🎨 **Modern UI** - Built with DaisyUI and Tailwind CSS
 - 🌐 **Scryfall Integration** - High-resolution card images on demand
 - 🌙 **Dark/Light Mode** - Toggle between themes
@@ -17,9 +17,8 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 
 **Backend:**
 - FastAPI (Python web framework)
-- OpenCV (image processing)
-- ImageHash (perceptual hashing)
-- Pillow (image manipulation)
+- OpenCV + NumPy (card outline detection, art hashing, index lookup)
+- Socket.IO (WebRTC signaling)
 
 **Frontend:**
 - Vanilla JavaScript
@@ -32,27 +31,30 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 
 ```powershell
 # Create virtual environment (optional but recommended)
-python -m venv venv
-.\venv\Scripts\activate
+python -m venv .venv
+.\.venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Build the Card Database
+### 2. Build the Card Index
 
-This downloads card data from Scryfall and builds a hash database (~12MB):
+This downloads card data and images from Scryfall and builds the hash index (~5-10MB):
 
 ```powershell
-python backend/build_database.py
+python backend/build_index.py
 ```
 
-This will take about 30-60 minutes depending on your internet speed. You only need to do this once!
+This takes roughly 30-90 minutes depending on your connection. You only need to do this once,
+and it is resumable: if interrupted, run it again and it continues where it stopped.
+Re-run it occasionally to pick up new sets.
 
 **Options:**
-- `--output card_hashes.pkl` - Output path
-- `--hash-size 16` - Hash precision (default: 16)
-- `--all-printings` - Include all printings instead of unique cards only
+- `--output card_index.npz` - Output path
+- `--workers 8` - Parallel image downloads
+- `--limit 500` - Only index the first N cards (quick test)
+- `--bulk-file PATH` - Use a local Scryfall bulk file instead of downloading one
 
 ### 3. Create Environment File
 
@@ -100,8 +102,10 @@ Navigate to: **http://localhost:8000**
 ManaMesh/
 ├── backend/
 │   ├── main.py              # FastAPI server
-│   ├── recognizer.py        # Card recognition engine
-│   └── build_database.py    # Database builder script
+│   ├── recognizer.py        # Card recognition pipeline
+│   ├── card_vision.py       # Card outline detection + art hashing
+│   ├── card_index.py        # Hash index storage and lookup
+│   └── build_index.py       # Index builder (downloads from Scryfall)
 ├── frontend/
 │   ├── index.html           # Main UI
 │   └── app.js               # Frontend logic
@@ -119,60 +123,30 @@ ManaMesh/
 
 ## How It Works
 
-### Perceptual Hashing
+### Outline detection + perceptual hashing
 
-Instead of storing 45GB of card images, we use **perceptual hashing**:
+Instead of storing 45GB of card images, we store a 256-bit **fingerprint of each card's artwork**:
 
-1. Download all MTG card images once
-2. Create a "fingerprint" (hash) for each card
-3. Store only the hash + metadata (~12MB total)
-4. When scanning, compare captured image hash to database
-5. Fetch high-res image from Scryfall API on match
+1. `build_index.py` downloads each distinct card artwork once and hashes its art window
+2. When scanning, the card outline is found and the card warped flat (perspective corrected)
+3. The artwork is hashed (both orientations, plus tiny shifts to tolerate an imperfect outline)
+4. The closest fingerprint in the index wins; the high-res image comes from Scryfall
+5. If nothing is close enough, the scan is reported as "not recognized" rather than guessing
 
-**Benefits:**
-- ⚡ Fast recognition (< 1 second)
-- 💾 Tiny storage footprint
-- 🎯 High accuracy (>90% confidence typical)
-- 🌐 Always shows latest Scryfall images
+**Why not feature matching (ORB)?** It was tried first: it needs a comparison against every card per
+scan (over a minute for the full database) and returns confident wrong answers on blurry input.
+Hash lookup over the whole index is a single matrix multiply.
+
+**Tuning:** a scan counts as a match if its closest fingerprint is within `MAX_HASH_DISTANCE` bits
+(of 256; default 78, set in `.env`). Lower is stricter: fewer wrong cards, more "not recognized".
+78 was measured against the full index using synthetically degraded webcam-style scans; if real
+scans are too often rejected, raise it a little (each +6 or so trades noticeably more wrong matches).
 
 ## Deployment
 
-### Quick Deploy (Free Hosting) 🚀
-
-**Frontend**: GitHub Pages (configured with GitHub Actions)
-**Backend**: Railway (recommended - no sleep time!)
-
-#### Steps:
-
-1. **Build database locally** (30-60 min, one-time):
-   ```powershell
-   .\prepare-deploy.ps1
-   ```
-   Then commit `card_hashes.pkl` to your repo.
-
-2. **Deploy backend to [Railway](https://railway.app)** (5 min):
-   - Sign in with GitHub
-   - New Project → Deploy from GitHub repo
-   - Select your repo → Auto-deploys! ✅
-   - Generate domain and copy URL
-   - See `RAILWAY-DEPLOY.md` for detailed guide
-
-3. **Configure frontend** (1 min):
-   - Edit `frontend/config.js` with your Railway URL
-   - Example: `window.MANAMESH_API_URL = 'https://your-app.railway.app';`
-
-4. **Enable GitHub Pages** (2 min):
-   - Go to repo Settings → Pages
-   - Source: "GitHub Actions"
-   - Commit and push - automatic deployment!
-
-5. **Your app is live!** 🎉
-   - Frontend: `https://[username].github.io/manamesh/`
-   - Backend: `https://your-app.railway.app`
-
-**Why Railway?** $5/month credit = ~500 hours uptime with no sleep time (vs Render's 15-min sleep)
-
-**Note**: `.python-version` and `runtime.txt` ensure Python 3.11.9 is used on hosting platforms.
+Not set up yet; the planned target is a Hetzner server. The backend serves the frontend itself,
+so a single process on a single host is all that is needed. The only build artifact to ship is
+`card_index.npz` (a few MB).
 
 ## Future Enhancements
 
@@ -185,8 +159,8 @@ Instead of storing 45GB of card images, we use **perceptual hashing**:
 
 ## Troubleshooting
 
-**"Card database not found"**
-- Run `python backend/build_database.py` first
+**"Card index not found"**
+- Run `python backend/build_index.py` first
 
 **"Camera not accessible"**
 - Check browser permissions
@@ -197,7 +171,8 @@ Instead of storing 45GB of card images, we use **perceptual hashing**:
 - Improve lighting
 - Hold card closer/straighter
 - Try a different angle
-- Check if card is in database (recent sets might be missing)
+- Keep the whole card in the selection box, with a plain background around it
+- Check if card is in the index (recent sets need a rebuild of the index)
 
 ## License
 
@@ -206,5 +181,4 @@ MIT License - feel free to use and modify!
 ## Acknowledgments
 
 - [Scryfall](https://scryfall.com) for their excellent API
-- [ImageHash](https://github.com/JohannesBuchner/imagehash) library
 - [DaisyUI](https://daisyui.com) for the beautiful components

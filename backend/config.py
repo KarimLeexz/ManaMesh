@@ -11,7 +11,7 @@ load_dotenv()
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
-CARD_DATABASE_PATH = os.getenv("CARD_DATABASE_PATH", "card_features.pkl")
+CARD_INDEX_PATH = os.getenv("CARD_INDEX_PATH", "card_index.npz")
 
 # API Configuration
 API_TITLE = "ManaMesh API"
@@ -31,16 +31,8 @@ SOCKETIO_LOGGER = True
 SOCKETIO_ENGINEIO_LOGGER = False
 
 # Recognition Configuration
-MIN_MATCHES = 15  # Minimum feature matches for card recognition
-CLAHE_CLIP_LIMIT = 2.0  # Contrast limit for image enhancement
-CLAHE_TILE_GRID_SIZE = (8, 8)  # Tile grid size for CLAHE
-DENOISE_H = 10  # Denoising filter strength
-DENOISE_TEMPLATE_WINDOW_SIZE = 7
-DENOISE_SEARCH_WINDOW_SIZE = 21
-
-# Card Detection Configuration
-CARD_MIN_AREA_RATIO = 0.05  # Minimum 5% of image
-CARD_MAX_AREA_RATIO = 0.95  # Maximum 95% of image
-CARD_ASPECT_RATIO_MIN = 0.5  # Min aspect ratio tolerance
-CARD_ASPECT_RATIO_MAX = 1.0  # Max aspect ratio tolerance
-CARD_PADDING = 10  # Padding around detected card
+# Maximum Hamming distance (out of 256 bits) between a scan and an index entry
+# for the scan to count as a match. Lower = stricter (fewer wrong cards, more
+# "not recognized"). 78 was measured against the full ~70k-entry index: beyond it,
+# wrong matches rise much faster than correct ones.
+MAX_HASH_DISTANCE = int(os.getenv("MAX_HASH_DISTANCE", "78"))

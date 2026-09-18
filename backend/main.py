@@ -22,9 +22,9 @@ try:
         CORS_ORIGINS, CORS_CREDENTIALS, CORS_METHODS, CORS_HEADERS,
         SOCKETIO_ASYNC_MODE, SOCKETIO_CORS_ORIGINS, 
         SOCKETIO_LOGGER, SOCKETIO_ENGINEIO_LOGGER,
-        FRONTEND_DIR, CARD_DATABASE_PATH
+        FRONTEND_DIR, CARD_INDEX_PATH
     )
-    from backend.recognizer import get_orb_recognizer as get_recognizer
+    from backend.recognizer import get_recognizer
     from backend.routes import health, recognition, static_files
     from backend.sockets.signaling import register_socket_handlers, clear_connected_users
 except ImportError:
@@ -33,9 +33,9 @@ except ImportError:
         CORS_ORIGINS, CORS_CREDENTIALS, CORS_METHODS, CORS_HEADERS,
         SOCKETIO_ASYNC_MODE, SOCKETIO_CORS_ORIGINS,
         SOCKETIO_LOGGER, SOCKETIO_ENGINEIO_LOGGER,
-        FRONTEND_DIR, CARD_DATABASE_PATH
+        FRONTEND_DIR, CARD_INDEX_PATH
     )
-    from recognizer import get_orb_recognizer as get_recognizer
+    from recognizer import get_recognizer
     from routes import health, recognition, static_files
     from sockets.signaling import register_socket_handlers, clear_connected_users
 
@@ -58,13 +58,13 @@ async def lifespan(app: FastAPI):
     """Initialize and cleanup resources."""
     # Startup
     try:
-        # Initialize card recognition database
-        get_recognizer(CARD_DATABASE_PATH)
+        # Initialize card recognition index
+        get_recognizer(CARD_INDEX_PATH)
         print("✓ Card recognizer initialized successfully")
     except Exception as e:
         print(f"⚠️  Warning: {e}")
         print("   The API will start but card recognition may not work.")
-        print("   Please run 'py backend/build_database.py' first.")
+        print("   Please run 'py backend/build_index.py' first.")
     
     print("✓ WebRTC signaling server ready")
     

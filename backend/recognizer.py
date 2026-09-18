@@ -1,145 +1,133 @@
 """
-ManaMesh - Advanced MTG Card Recognition using ORB feature matching.
-Much more robust than perceptual hashing for real-world conditions.
+ManaMesh - MTG card recognition.
+
+Pipeline (about 5-20 ms per scan):
+  1. find the card outline(s) in the image and warp each flat        (card_vision)
+  2. hash the artwork window, trying both orientations and a few
+     small shifts to tolerate an imperfect outline                   (card_vision)
+  3. nearest neighbours by Hamming distance over the whole index     (card_index)
+  4. accept only if the best distance is under the threshold, so an
+     unclear scan returns "not recognized" instead of a wrong card
 """
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import cv2
 import numpy as np
-import pickle
-from typing import Optional, Dict, Any, List, Tuple
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-import requests
-from io import BytesIO
-from PIL import Image
+
+try:
+    from backend.card_index import CardIndex
+    from backend import card_vision
+except ImportError:
+    from card_index import CardIndex
+    import card_vision
+
+# Window shifts (fraction of card size) tried per outline: centre, then left/right/up/down
+_SHIFTS = ((0.0, 0.0), (0.02, 0.0), (-0.02, 0.0), (0.0, 0.02), (0.0, -0.02))
+_ROTATIONS = (None, cv2.ROTATE_180)  # a card can be held upside down
+
+# Treating the whole image as the card hashes any background too, so it must match
+# more tightly than a properly outlined card.
+_FALLBACK_STRICTNESS = 12
+
+_MAX_ALTERNATIVES = 3
 
 
-class ORBCardRecognizer:
-    """
-    Recognizes MTG cards using ORB (Oriented FAST and Rotated BRIEF) feature matching.
-    More robust to lighting, angle, and perspective changes than perceptual hashing.
-    """
-    
-    def __init__(self, database_path: str = "card_features.pkl", max_features: int = 500):
-        """
-        Initialize the ORB-based card recognizer.
-        
-        Args:
-            database_path: Path to the feature database
-            max_features: Maximum number of ORB features to detect per card
-        """
-        self.max_features = max_features
-        self.orb = cv2.ORB_create(nfeatures=max_features)
-        self.bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        
-        # Try to load existing database
-        if Path(database_path).exists():
-            self.card_features = self._load_database(database_path)
-            print(f"✓ Loaded ORB features for {len(self.card_features):,} cards")
+class CardRecognizer:
+    def __init__(self, index_path: str, max_distance: int):
+        """max_distance: largest Hamming distance (of 256 bits) still accepted as a match."""
+        self.index_path = index_path
+        self.max_distance = max_distance
+        self.index: Optional[CardIndex] = None
+
+        if Path(index_path).exists():
+            self.index = CardIndex.load(index_path)
+            print(f"✓ Loaded card index: {len(self.index):,} entries, {self.index.unique_names:,} unique names "
+                  f"(max distance {max_distance})")
         else:
-            print(f"⚠️  Database not found at {database_path}")
-            print(f"   Run './build-db.ps1' to build the database.")
-            self.card_features = {}
-    
-    def _load_database(self, database_path: str) -> Dict[str, Dict[str, Any]]:
-        """Load the card feature database."""
-        with open(database_path, 'rb') as f:
-            return pickle.load(f)
-    
-    def recognize(
-        self,
-        image_array: np.ndarray,
-        threshold: int = 30,
-        min_matches: int = 10
-    ) -> Optional[Dict[str, Any]]:
+            print(f"⚠️  Card index not found at {index_path}")
+            print("   Run './build-db.ps1' (or 'python backend/build_index.py') to build it.")
+
+    def recognize(self, img: np.ndarray) -> Optional[Dict[str, Any]]:
         """
-        Recognize a card using ORB feature matching.
-        
-        Args:
-            image_array: Image as numpy array (BGR format from OpenCV)
-            threshold: Match distance ratio threshold (0.0-1.0, lower = stricter)
-            min_matches: Minimum number of good matches required
-        
-        Returns:
-            Dictionary with card info and confidence, or None if no match
+        Identify the card in a BGR image.
+
+        Returns the matched card's info plus 'distance', 'confidence' (0-1) and
+        'alternatives', or None if nothing matched closely enough.
         """
-        # Convert to grayscale for feature detection
-        if len(image_array.shape) == 3:
-            gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image_array
-        
-        # Detect ORB features in query image
-        keypoints_query, descriptors_query = self.orb.detectAndCompute(gray, None)
-        
-        if descriptors_query is None or len(keypoints_query) < min_matches:
-            print(f"⚠️  Not enough features detected ({len(keypoints_query) if keypoints_query else 0})")
+        if self.index is None:
+            raise FileNotFoundError(self.index_path)
+
+        max_distance = self.max_distance
+        outlines = card_vision.find_cards(img, limit=3)
+        candidates = [(card, max_distance) for card in outlines]
+        candidates.append((card_vision.whole_image_as_card(img), max_distance - _FALLBACK_STRICTNESS))
+
+        # One row per (candidate, rotation, shift); all matched in a single matrix product
+        hashes: List[np.ndarray] = []
+        row_limits: List[int] = []
+        for card, limit in candidates:
+            for rotation in _ROTATIONS:
+                oriented = card if rotation is None else cv2.rotate(card, rotation)
+                for dx, dy in _SHIFTS:
+                    hashes.append(card_vision.art_hash(oriented, dx, dy))
+                    row_limits.append(limit)
+
+        dist = self.index.distances(np.stack(hashes))          # (rows, entries)
+        nearest = dist.argmin(axis=1)
+        nearest_dist = dist[np.arange(len(nearest)), nearest]
+
+        # Best row among those inside their own threshold
+        ok = nearest_dist <= np.array(row_limits)
+        if not ok.any():
             return None
-        
-        print(f"🔍 Detected {len(keypoints_query)} features in query image")
-        
-        # Match against all cards in database
-        best_match = None
-        best_score = 0
-        best_num_matches = 0
-        
-        for card_id, card_data in self.card_features.items():
-            descriptors_db = card_data['descriptors']
-            
-            # Match features using BFMatcher with KNN
-            matches = self.bf_matcher.knnMatch(descriptors_query, descriptors_db, k=2)
-            
-            # Apply Lowe's ratio test
-            good_matches = []
-            for match_pair in matches:
-                if len(match_pair) == 2:
-                    m, n = match_pair
-                    if m.distance < 0.75 * n.distance:  # Lowe's ratio
-                        good_matches.append(m)
-            
-            num_good = len(good_matches)
-            
-            if num_good >= min_matches:
-                # Calculate match score
-                avg_distance = sum(m.distance for m in good_matches) / num_good
-                score = num_good / avg_distance  # Higher is better
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = card_data['info']
-                    best_num_matches = num_good
-        
-        if best_match is None:
-            print(f"⚠️  No matches found (min_matches={min_matches})")
-            return None
-        
-        # Calculate confidence based on number of matches
-        confidence = min(best_num_matches / 50.0, 1.0)  # Normalize to 0-1
-        
-        print(f"✓ Matched: {best_match['name']} ({best_num_matches} features, confidence={confidence:.2f})")
-        
-        return {
-            **best_match,
-            'confidence': float(confidence),
-            'num_matches': int(best_num_matches),
-            'match_score': float(best_score)
-        }
-    
+        row = int(np.where(ok, nearest_dist, np.inf).argmin())
+        best, best_dist = int(nearest[row]), float(nearest_dist[row])
+
+        result = self.index.entry(best)
+        result["distance"] = int(best_dist)
+        result["confidence"] = round(max(0.0, 1.0 - best_dist / max_distance), 3)
+        result["alternatives"] = self._alternatives(dist[row], result["name"], max_distance)
+        return result
+
+    def _alternatives(self, row_dist: np.ndarray, best_name: str, max_distance: int) -> List[Dict[str, Any]]:
+        """Next-closest distinct card names for the same scan, if any are plausible."""
+        assert self.index is not None
+        alternatives: List[Dict[str, Any]] = []
+        seen = {best_name}
+        for i in np.argsort(row_dist)[:50]:
+            if row_dist[i] > max_distance:
+                break
+            name = str(self.index.names[i])
+            if name in seen:
+                continue
+            seen.add(name)
+            alternatives.append({**self.index.entry(int(i)), "distance": int(row_dist[i])})
+            if len(alternatives) == _MAX_ALTERNATIVES:
+                break
+        return alternatives
+
     def get_database_stats(self) -> Dict[str, Any]:
-        """Get statistics about the loaded database."""
+        if self.index is None:
+            raise FileNotFoundError(self.index_path)
         return {
-            'total_cards': len(self.card_features),
-            'max_features': self.max_features,
-            'unique_names': len(set(card['info']['name'] for card in self.card_features.values())),
+            "total_cards": len(self.index),
+            "unique_names": self.index.unique_names,
+            "max_distance": self.max_distance,
         }
 
 
 # Singleton instance
-_orb_recognizer_instance: Optional[ORBCardRecognizer] = None
+_recognizer_instance: Optional[CardRecognizer] = None
 
 
-def get_orb_recognizer(database_path: str = "card_features.pkl") -> ORBCardRecognizer:
-    """Get or create the global ORB recognizer instance."""
-    global _orb_recognizer_instance
-    if _orb_recognizer_instance is None:
-        _orb_recognizer_instance = ORBCardRecognizer(database_path)
-    return _orb_recognizer_instance
+def get_recognizer(index_path: Optional[str] = None) -> CardRecognizer:
+    """Get or create the global recognizer instance."""
+    global _recognizer_instance
+    if _recognizer_instance is None:
+        try:
+            from backend.config import CARD_INDEX_PATH, MAX_HASH_DISTANCE
+        except ImportError:
+            from config import CARD_INDEX_PATH, MAX_HASH_DISTANCE
+        _recognizer_instance = CardRecognizer(index_path or CARD_INDEX_PATH, MAX_HASH_DISTANCE)
+    return _recognizer_instance

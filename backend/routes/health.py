@@ -4,9 +4,9 @@ API Routes - Health and Statistics
 from fastapi import APIRouter, HTTPException
 
 try:
-    from backend.recognizer import get_orb_recognizer as get_recognizer
+    from backend.recognizer import get_recognizer
 except ImportError:
-    from recognizer import get_orb_recognizer as get_recognizer
+    from recognizer import get_recognizer
 
 router = APIRouter()
 

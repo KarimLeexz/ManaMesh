@@ -10,10 +10,10 @@ env/
 ENV/
 
 # Database files
-# Keep card_features.pkl for deployment (main database)
-# Ignore temporary/test files
-card_features.pkl.checkpoint
-card_features_test.pkl
+# Keep card_index.npz for deployment (main database, ~5-10 MB)
+# Ignore build leftovers (Scryfall bulk download, resume checkpoint)
+scryfall-default-cards*
+card_index.npz.checkpoint.jsonl
 *.db
 
 # Environment

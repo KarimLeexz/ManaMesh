@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
-# Build feature database for ManaMesh
+# Build the card index for ManaMesh (downloads card images from Scryfall)
 
-Write-Host "🎴 ManaMesh - Building Card Recognition Database" -ForegroundColor Cyan
+Write-Host "🎴 ManaMesh - Building Card Recognition Index" -ForegroundColor Cyan
 Write-Host ""
 
 # Activate virtual environment
@@ -14,16 +14,16 @@ if (Test-Path ".venv\Scripts\Activate.ps1") {
 }
 
 # Run the build script
-Write-Host "🚀 Starting database build..." -ForegroundColor Green
-Write-Host "   This will take SEVERAL HOURS (likely 8-12 hours)" -ForegroundColor Yellow
-Write-Host "   Progress will be saved every 1000 cards" -ForegroundColor Yellow
+Write-Host "🚀 Starting index build..." -ForegroundColor Green
+Write-Host "   Downloads about 60,000 card images; expect roughly 30-90 minutes" -ForegroundColor Yellow
+Write-Host "   Safe to interrupt: run this script again to resume" -ForegroundColor Yellow
 Write-Host ""
 
-python backend/build_database.py
+python backend/build_index.py @args
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
-    Write-Host "✅ Database build complete!" -ForegroundColor Green
+    Write-Host "✅ Index build complete! Start the server with .\start.ps1" -ForegroundColor Green
 } else {
     Write-Host ""
     Write-Host "❌ Build failed with exit code $LASTEXITCODE" -ForegroundColor Red
