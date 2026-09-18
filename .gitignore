@@ -9,6 +9,9 @@ venv/
 env/
 ENV/
 
+# Saved scans (SAVE_SCANS_DIR debugging aid)
+scans/
+
 # Database files
 # Keep card_index.npz for deployment (main database, ~5-10 MB)
 # Ignore build leftovers (Scryfall bulk download, resume checkpoint)

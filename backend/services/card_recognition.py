@@ -3,6 +3,9 @@ Card Recognition Service
 Decodes uploaded images and runs them through the card recognizer.
 """
 import asyncio
+import json
+import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import cv2
@@ -10,9 +13,23 @@ import numpy as np
 from fastapi import HTTPException
 
 try:
+    from backend.config import SAVE_SCANS_DIR
     from backend.recognizer import get_recognizer
 except ImportError:
+    from config import SAVE_SCANS_DIR
     from recognizer import get_recognizer
+
+
+def _save_scan(image_bytes: bytes, x: Optional[float], y: Optional[float], result: Optional[Dict[str, Any]]) -> None:
+    """Keep the scanned image with its click position and outcome (only when SAVE_SCANS_DIR is set)."""
+    if not SAVE_SCANS_DIR:
+        return
+    folder = Path(SAVE_SCANS_DIR)
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
+    (folder / f"{stem}.jpg").write_bytes(image_bytes)
+    outcome = None if result is None else {k: result[k] for k in ("name", "distance", "margin", "corners")}
+    (folder / f"{stem}.json").write_text(json.dumps({"x": x, "y": y, "result": outcome}, indent=1), encoding="utf-8")
 
 
 class CardRecognitionService:
@@ -48,6 +65,8 @@ class CardRecognitionService:
                 result = await loop.run_in_executor(None, recognizer.recognize_at, img, x * w, y * h)
             else:
                 result = await loop.run_in_executor(None, recognizer.recognize, img)
+
+            _save_scan(image_bytes, x, y, result)
 
             if result is None:
                 print(f"⚠️  No match ({img.shape[1]}x{img.shape[0]}px image)")
