@@ -134,10 +134,16 @@ async function scanRegion(x, y, width, height, API_URL, state, displayCard, show
         const scaleX = canvas.width / mainVideo.clientWidth;
         const scaleY = canvas.height / mainVideo.clientHeight;
         
-        const regionX = Math.floor(x * scaleX);
-        const regionY = Math.floor(y * scaleY);
+        let regionX = Math.floor(x * scaleX);
+        let regionY = Math.floor(y * scaleY);
         const regionWidth = Math.floor(width * scaleX);
         const regionHeight = Math.floor(height * scaleY);
+
+        // The selection is in on-screen coordinates, but the canvas holds the raw
+        // (un-flipped) frame, so mirror the box back if the camera is flipped
+        const camera = state.cameras.get(state.currentMainCamera);
+        if (camera?.flipH) regionX = canvas.width - regionX - regionWidth;
+        if (camera?.flipV) regionY = canvas.height - regionY - regionHeight;
         
         // Extract the selected region
         const regionCanvas = document.createElement('canvas');
