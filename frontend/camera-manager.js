@@ -4,6 +4,34 @@
  */
 
 /**
+ * Ask for the best picture the camera can give. "ideal" values are preferences: the
+ * browser picks the closest mode the camera supports (a 1080p camera simply gives 1080p).
+ * Card text is small, so resolution matters far more than frame rate here.
+ */
+function videoConstraints(deviceId) {
+    return {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        width: { ideal: 3840 },
+        height: { ideal: 2160 },
+        frameRate: { ideal: 30 }
+    };
+}
+
+/**
+ * Tell the browser this video is about fine detail (card text), not motion, so it keeps
+ * resolution instead of smoothness when it has to compromise.
+ * @param {MediaStream} stream
+ * @returns {string} Description of what the camera actually delivers, e.g. "1920x1080 @ 30fps"
+ */
+function describeAndTuneStream(stream) {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return 'no video';
+    track.contentHint = 'detail';
+    const { width, height, frameRate } = track.getSettings();
+    return `${width}x${height} @ ${Math.round(frameRate || 0)}fps`;
+}
+
+/**
  * Initialize camera setup modal with device enumeration and preview
  * @param {Object} state - Application state object
  * @param {Function} showToast - Toast notification function
@@ -70,14 +98,10 @@ async function initializeCameraSetup(state, showToast) {
             // Start new stream with selected camera
             try {
                 const newStream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        deviceId: { exact: newDeviceId },
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    }
+                    video: videoConstraints(newDeviceId)
                 });
                 setupVideo.srcObject = newStream;
-                console.log('Switched to new camera successfully');
+                console.log(`Switched to new camera successfully (${describeAndTuneStream(newStream)})`);
             } catch (err) {
                 console.error('Error switching camera:', err);
                 showToast('Failed to switch camera', 'error');
@@ -120,18 +144,13 @@ async function enableCamera(state, { removeCamera, addCamera, showOnMainFeed, cr
     }
     
     try {
-        const constraints = {
-            video: {
-                deviceId: state.selectedDeviceId ? { exact: state.selectedDeviceId } : undefined,
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            }
-        };
-        
-        state.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        state.localStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints(state.selectedDeviceId)
+        });
         state.cameraEnabled = true;
-        
-        console.log('✓ Local camera enabled', state.localStream);
+        const quality = describeAndTuneStream(state.localStream);
+
+        console.log(`✓ Local camera enabled (${quality})`, state.localStream);
         
         // Remove placeholder and add real camera
         removeCamera('local');
@@ -163,7 +182,7 @@ async function enableCamera(state, { removeCamera, addCamera, showOnMainFeed, cr
             });
         }
         
-        showToast('Camera enabled', 'success');
+        showToast(`Camera enabled (${quality})`, 'success');
     } catch (err) {
         console.error('Error enabling camera:', err);
         state.cameraEnabled = false;

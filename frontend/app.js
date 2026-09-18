@@ -19,7 +19,8 @@ import {
 
 import {
     initializeSocketIO,
-    createPeerConnection
+    createPeerConnection,
+    streamStats
 } from './webrtc-manager.js';
 
 import {
@@ -191,5 +192,6 @@ window.joinRoom = joinRoom;
 window.joinRoomWithoutCamera = joinRoomWithoutCamera;
 window.reopenCameraSetup = reopenCameraSetup;
 window.toggleCameraEnabled = toggleCameraEnabled;
+window.streamStats = () => streamStats(state);
 window.toggleFlipHorizontal = (userId) => toggleFlipHorizontal(userId, state, showToast);
 window.toggleFlipVertical = (userId) => toggleFlipVertical(userId, state, showToast);
