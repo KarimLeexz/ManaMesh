@@ -36,3 +36,7 @@ SOCKETIO_ENGINEIO_LOGGER = False
 # "not recognized"). 78 was measured against the full ~70k-entry index: beyond it,
 # wrong matches rise much faster than correct ones.
 MAX_HASH_DISTANCE = int(os.getenv("MAX_HASH_DISTANCE", "78"))
+
+# Debugging aid: if set to a folder, every scan's image, click position and result are saved
+# there, so real-world failures can be studied later. Off by default (frames stay private).
+SAVE_SCANS_DIR = os.getenv("SAVE_SCANS_DIR", "").strip() or None
