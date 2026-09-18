@@ -85,7 +85,7 @@ Navigate to: **http://localhost:8000**
 
 1. **Allow Camera Access** - When prompted, grant camera permissions
 2. **Point at Card** - Position a Magic card in front of your camera
-3. **Click "Scan Card"** - The app will identify the card
+3. **Click the card** in the video - The app looks for a card where you clicked and identifies it
 4. **View Results** - High-res card image appears in the sidebar
 
 ### Tips for Best Results
@@ -128,7 +128,8 @@ ManaMesh/
 Instead of storing 45GB of card images, we store a 256-bit **fingerprint of each card's artwork**:
 
 1. `build_index.py` downloads each distinct card artwork once and hashes its art window
-2. When scanning, the card outline is found and the card warped flat (perspective corrected)
+2. When you click, crops of several sizes around the click are searched for a card whose outline
+   contains the click; each is warped flat (perspective corrected)
 3. The artwork is hashed (both orientations, plus tiny shifts to tolerate an imperfect outline)
 4. The closest fingerprint in the index wins; the high-res image comes from Scryfall
 5. If nothing is close enough, the scan is reported as "not recognized" rather than guessing
@@ -171,7 +172,7 @@ so a single process on a single host is all that is needed. The only build artif
 - Improve lighting
 - Hold card closer/straighter
 - Try a different angle
-- Keep the whole card in the selection box, with a plain background around it
+- Click on the card's face, with the whole card in view (a few cards side by side is fine)
 - Check if card is in the index (recent sets need a rebuild of the index)
 
 ## License

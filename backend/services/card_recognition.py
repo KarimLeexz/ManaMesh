@@ -3,7 +3,7 @@ Card Recognition Service
 Decodes uploaded images and runs them through the card recognizer.
 """
 import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import cv2
 import numpy as np
@@ -19,12 +19,16 @@ class CardRecognitionService:
     """Service for card recognition operations."""
 
     @staticmethod
-    async def recognize_from_bytes(image_bytes: bytes) -> Dict[str, Any]:
+    async def recognize_from_bytes(
+        image_bytes: bytes, x: Optional[float] = None, y: Optional[float] = None
+    ) -> Dict[str, Any]:
         """
         Recognize a card from image bytes (runs in a thread pool).
 
         Args:
             image_bytes: Image file contents
+            x, y: Where the user clicked, as fractions (0-1) of the image width and height.
+                  Given, only the card at that spot is identified; omitted, the best card in the image.
 
         Returns:
             Recognition result with success status and card info
@@ -38,13 +42,18 @@ class CardRecognitionService:
                 raise HTTPException(status_code=400, detail="Invalid image file")
 
             recognizer = get_recognizer()
-            result = await asyncio.get_running_loop().run_in_executor(None, recognizer.recognize, img)
+            loop = asyncio.get_running_loop()
+            if x is not None and y is not None:
+                h, w = img.shape[:2]
+                result = await loop.run_in_executor(None, recognizer.recognize_at, img, x * w, y * h)
+            else:
+                result = await loop.run_in_executor(None, recognizer.recognize, img)
 
             if result is None:
                 print(f"⚠️  No match ({img.shape[1]}x{img.shape[0]}px image)")
                 return {
                     "success": False,
-                    "message": "No card recognized. Try better lighting or a clearer image."
+                    "message": "No card found there. Click on the card itself, with the whole card in view."
                 }
 
             print(f"✓ Recognized: {result['name']} (distance {result['distance']}/{recognizer.max_distance})")

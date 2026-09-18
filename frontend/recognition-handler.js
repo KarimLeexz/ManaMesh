@@ -1,196 +1,160 @@
-/**
+﻿/**
  * Recognition Handler Module
- * Handles card recognition, scanning, and API communication
+ * Click-to-scan card recognition, card search and API communication
  */
 
+const MAX_UPLOAD_SIDE = 2560;   // longest side of the frame sent to the server, in pixels
+const OUTLINE_MS = 2500;        // how long a found card's outline stays on the video
+
+let outlineTimer = null;
+
 /**
- * Setup click handler on main video for card scanning
- * @param {Object} state - Application state
- * @param {Function} scanRegion - Function to scan selected region
- * @param {Function} showToast - Toast notification function
+ * Convert a position between the on-screen video and the raw video frame. The video may be
+ * shown mirrored (flipH) or upside down (flipV), but the frame we capture is always the raw
+ * one. A mirror is its own inverse, so the same function converts both ways.
+ * @param {number} fx - Horizontal position as a fraction (0-1)
+ * @param {number} fy - Vertical position as a fraction (0-1)
+ * @param {Object} camera - Camera entry with flipH / flipV
+ * @returns {number[]} [fx, fy] in the other space
  */
-function setupClickHandler(state, scanRegion, showToast) {
+function mirror(fx, fy, camera) {
+    return [camera?.flipH ? 1 - fx : fx, camera?.flipV ? 1 - fy : fy];
+}
+
+/**
+ * Click on a card in the main video to identify it
+ * @param {Object} state - Application state
+ * @param {Function} scanAt - Scans the card at a position: (fx, fy, click)
+ */
+function setupClickHandler(state, scanAt) {
     const container = document.getElementById('mainFeedContainer');
     const mainVideo = document.getElementById('mainVideo');
-    
-    let isDragging = false;
-    let startX, startY;
-    let selectionBox = null;
-    
-    // Remove old listener
+
+    // Remove the old drag-a-box handlers
     container.onmousedown = null;
     container.onmousemove = null;
     container.onmouseup = null;
-    
-    // Mouse down - start selection
-    container.onmousedown = (e) => {
+
+    container.onclick = (e) => {
         if (state.isScanning) return;
-        
+
         // Don't scan if clicking on the menu button or dropdown
         if (e.target.closest('#mainCameraMenu') || e.target.closest('.dropdown-content')) {
             return;
         }
-        
+
         const rect = mainVideo.getBoundingClientRect();
-        startX = e.clientX - rect.left;
-        startY = e.clientY - rect.top;
-        
-        isDragging = true;
-        
-        // Create selection box
-        if (!selectionBox) {
-            selectionBox = document.createElement('div');
-            selectionBox.style.position = 'absolute';
-            selectionBox.style.border = '3px solid #00ff00';
-            selectionBox.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
-            selectionBox.style.pointerEvents = 'none';
-            selectionBox.style.zIndex = '100';
-            container.appendChild(selectionBox);
-        }
-        
-        selectionBox.style.left = `${startX}px`;
-        selectionBox.style.top = `${startY}px`;
-        selectionBox.style.width = '0px';
-        selectionBox.style.height = '0px';
-        selectionBox.style.display = 'block';
-    };
-    
-    // Mouse move - update selection
-    container.onmousemove = (e) => {
-        if (!isDragging || !selectionBox) return;
-        
-        const rect = mainVideo.getBoundingClientRect();
-        const currentX = e.clientX - rect.left;
-        const currentY = e.clientY - rect.top;
-        
-        const width = Math.abs(currentX - startX);
-        const height = Math.abs(currentY - startY);
-        const left = Math.min(startX, currentX);
-        const top = Math.min(startY, currentY);
-        
-        selectionBox.style.left = `${left}px`;
-        selectionBox.style.top = `${top}px`;
-        selectionBox.style.width = `${width}px`;
-        selectionBox.style.height = `${height}px`;
-    };
-    
-    // Mouse up - scan selected area
-    container.onmouseup = async (e) => {
-        if (!isDragging) return;
-        isDragging = false;
-        
-        const rect = mainVideo.getBoundingClientRect();
-        const endX = e.clientX - rect.left;
-        const endY = e.clientY - rect.top;
-        
-        const width = Math.abs(endX - startX);
-        const height = Math.abs(endY - startY);
-        
-        // Hide selection box
-        if (selectionBox) {
-            selectionBox.style.display = 'none';
-        }
-        
-        // If selection too small, treat as click
-        if (width < 50 || height < 50) {
-            showToast('Drag a box around the card to scan', 'info');
-            return;
-        }
-        
-        // Scan the selected region
-        const left = Math.min(startX, endX);
-        const top = Math.min(startY, endY);
-        await scanRegion(left, top, width, height);
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        if (screenX < 0 || screenY < 0 || screenX > rect.width || screenY > rect.height) return;
+
+        const camera = state.cameras.get(state.currentMainCamera);
+        const [fx, fy] = mirror(screenX / rect.width, screenY / rect.height, camera);
+        scanAt(fx, fy, { screenX, screenY });
     };
 }
 
 /**
- * Scan card in selected region
- * @param {number} x - X coordinate
- * @param {number} y - Y coordinate
- * @param {number} width - Selection width
- * @param {number} height - Selection height
+ * Identify the card at a position in the main video
+ * @param {number} fx - Horizontal position in the raw frame, as a fraction (0-1)
+ * @param {number} fy - Vertical position in the raw frame, as a fraction (0-1)
+ * @param {Object} click - Where the click landed on screen: { screenX, screenY }
  * @param {string} API_URL - API URL
  * @param {Object} state - Application state
  * @param {Function} displayCard - Function to display recognized card
  * @param {Function} showToast - Toast notification function
  */
-async function scanRegion(x, y, width, height, API_URL, state, displayCard, showToast) {
-    if (!state.currentMainCamera || state.isScanning) return;
-    
+async function scanAt(fx, fy, click, API_URL, state, displayCard, showToast) {
+    const mainVideo = document.getElementById('mainVideo');
+    if (!state.currentMainCamera || state.isScanning || !mainVideo.videoWidth) return;
+
     state.isScanning = true;
     document.getElementById('scanningIndicator').style.display = 'flex';
-    
-    try {
-        const mainVideo = document.getElementById('mainVideo');
-        const canvas = document.createElement('canvas');
-        canvas.width = mainVideo.videoWidth;
-        canvas.height = mainVideo.videoHeight;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(mainVideo, 0, 0);
-        
-        // Calculate the region in video coordinates
-        const scaleX = canvas.width / mainVideo.clientWidth;
-        const scaleY = canvas.height / mainVideo.clientHeight;
-        
-        let regionX = Math.floor(x * scaleX);
-        let regionY = Math.floor(y * scaleY);
-        const regionWidth = Math.floor(width * scaleX);
-        const regionHeight = Math.floor(height * scaleY);
+    const ping = document.getElementById('clickIndicator');
+    ping.style.left = `${click.screenX - 24}px`;
+    ping.style.top = `${click.screenY - 24}px`;
+    ping.classList.remove('hidden');
 
-        // The selection is in on-screen coordinates, but the canvas holds the raw
-        // (un-flipped) frame, so mirror the box back if the camera is flipped
-        const camera = state.cameras.get(state.currentMainCamera);
-        if (camera?.flipH) regionX = canvas.width - regionX - regionWidth;
-        if (camera?.flipV) regionY = canvas.height - regionY - regionHeight;
-        
-        // Extract the selected region
-        const regionCanvas = document.createElement('canvas');
-        regionCanvas.width = regionWidth;
-        regionCanvas.height = regionHeight;
-        const regionCtx = regionCanvas.getContext('2d');
-        
-        regionCtx.drawImage(
-            canvas,
-            regionX, regionY, regionWidth, regionHeight,
-            0, 0, regionWidth, regionHeight
-        );
-        
-        // Convert to blob (high quality)
-        const blob = await new Promise(resolve => regionCanvas.toBlob(resolve, 'image/jpeg', 0.98));
-        
-        console.log('📸 Scanning region:', {
-            x: regionX, y: regionY,
-            width: regionWidth, height: regionHeight,
-            size: (blob.size / 1024).toFixed(2) + ' KB'
-        });
-        
-        // Send to API
+    try {
+        // Capture the raw frame (a local camera gives its full capture resolution)
+        const scale = Math.min(1, MAX_UPLOAD_SIDE / Math.max(mainVideo.videoWidth, mainVideo.videoHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(mainVideo.videoWidth * scale);
+        canvas.height = Math.round(mainVideo.videoHeight * scale);
+        canvas.getContext('2d').drawImage(mainVideo, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+
         const formData = new FormData();
-        formData.append('file', blob, 'card.jpg');
-        
-        const response = await fetch(`${API_URL}/api/recognize`, {
-            method: 'POST',
-            body: formData
-        });
-        
+        formData.append('file', blob, 'frame.jpg');
+        formData.append('x', fx.toFixed(4));
+        formData.append('y', fy.toFixed(4));
+
+        const response = await fetch(`${API_URL}/api/recognize`, { method: 'POST', body: formData });
         const result = await response.json();
-        
-        if (result.success) {
+
+        if (!response.ok) {
+            showToast(result.detail || 'Scan failed', 'error');
+        } else if (result.success) {
             displayCard(result.card);
+            drawOutline(result.card, state);
             showToast(`Found: ${result.card.name}`, 'success');
         } else {
-            showToast(result.message || 'Card not recognized', 'warning');
+            showToast(result.message || 'No card found there', 'warning');
         }
-        
     } catch (err) {
         console.error('Error scanning card:', err);
         showToast('Failed to scan card', 'error');
     } finally {
         state.isScanning = false;
+        ping.classList.add('hidden');
         document.getElementById('scanningIndicator').style.display = 'none';
     }
+}
+
+/**
+ * Outline the found card on the video for a moment, with its name
+ * @param {Object} card - Recognized card, with 'corners' as fractions of the raw frame
+ * @param {Object} state - Application state
+ */
+function drawOutline(card, state) {
+    if (!card.corners) return;
+
+    const mainVideo = document.getElementById('mainVideo');
+    const canvas = document.getElementById('clickCanvas');
+    const camera = state.cameras.get(state.currentMainCamera);
+    canvas.width = mainVideo.clientWidth;
+    canvas.height = mainVideo.clientHeight;
+
+    const points = card.corners.map(([cx, cy]) => {
+        const [sx, sy] = mirror(cx, cy, camera);
+        return [sx * canvas.width, sy * canvas.height];
+    });
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    points.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 255, 136, 0.12)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#00ff88';
+    ctx.stroke();
+
+    // Name tag above the card's top edge
+    const left = Math.min(...points.map(p => p[0]));
+    const top = Math.min(...points.map(p => p[1]));
+    ctx.font = 'bold 14px sans-serif';
+    const label = card.name;
+    const width = ctx.measureText(label).width + 12;
+    const labelY = Math.max(top - 26, 0);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(left, labelY, width, 22);
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText(label, left + 6, labelY + 16);
+
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(() => ctx.clearRect(0, 0, canvas.width, canvas.height), OUTLINE_MS);
 }
 
 /**
@@ -291,15 +255,15 @@ async function checkHealth(API_URL) {
         const statsEl = document.getElementById('dbStats');
         
         if (health.database_loaded) {
-            statusEl.textContent = '✓ Ready';
+            statusEl.textContent = 'âœ“ Ready';
             statsEl.textContent = `${health.stats.total_cards.toLocaleString()} cards`;
         } else {
-            statusEl.textContent = '⚠ No DB';
+            statusEl.textContent = 'âš  No DB';
             statsEl.textContent = '';
         }
     } catch (err) {
         console.error('Health check failed:', err);
-        document.getElementById('dbStatus').textContent = '✗ Offline';
+        document.getElementById('dbStatus').textContent = 'âœ— Offline';
         document.getElementById('dbStats').textContent = '';
     }
 }
@@ -474,7 +438,7 @@ async function selectCard(cardName) {
 // ES6 Module Exports
 export {
     setupClickHandler,
-    scanRegion,
+    scanAt,
     displayCard,
     checkHealth,
     setupCardSearch

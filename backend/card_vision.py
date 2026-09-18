@@ -104,22 +104,29 @@ def whole_image_as_card(img: np.ndarray) -> np.ndarray:
     return cv2.resize(img, (CARD_W, CARD_H), interpolation=cv2.INTER_AREA)
 
 
-def find_cards(img: np.ndarray, limit: int = 3) -> List[np.ndarray]:
+def find_outlines(img: np.ndarray, limit: int = 3) -> List[np.ndarray]:
     """
-    Locate card-like shapes in the image and return each as an upright
-    CARD_W x CARD_H crop, most likely candidate first (empty if none found).
-    Orientation is only corrected between portrait/landscape; the caller must
-    still try the 180-degree rotation.
+    Corners (top-left, top-right, bottom-right, bottom-left, long side vertical) of the
+    card-like shapes in the image, most likely first (empty if none found).
     """
-    dst = np.float32([[0, 0], [CARD_W - 1, 0], [CARD_W - 1, CARD_H - 1], [0, CARD_H - 1]])
-    cards = []
+    outlines = []
     for quad in _card_quads(img)[:limit]:
         width = np.linalg.norm(quad[1] - quad[0])
         height = np.linalg.norm(quad[3] - quad[0])
-        if height < width:  # landscape -> make the long edge vertical
-            quad = np.roll(quad, -1, axis=0)
-        cards.append(cv2.warpPerspective(img, cv2.getPerspectiveTransform(quad, dst), (CARD_W, CARD_H)))
-    return cards
+        outlines.append(np.roll(quad, -1, axis=0) if height < width else quad)  # landscape -> long edge vertical
+    return outlines
+
+
+def flatten(img: np.ndarray, quad: np.ndarray) -> np.ndarray:
+    """Warp the region inside a quad to an upright CARD_W x CARD_H crop."""
+    dst = np.float32([[0, 0], [CARD_W - 1, 0], [CARD_W - 1, CARD_H - 1], [0, CARD_H - 1]])
+    return cv2.warpPerspective(img, cv2.getPerspectiveTransform(np.float32(quad), dst), (CARD_W, CARD_H))
+
+
+def whole_image_quad(img: np.ndarray) -> np.ndarray:
+    """The image frame as a quad (for a crop that is already tight around one card)."""
+    h, w = img.shape[:2]
+    return np.float32([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]])
 
 
 def art_hash(card: np.ndarray, dx: float = 0.0, dy: float = 0.0) -> np.ndarray:
