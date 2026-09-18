@@ -1,10 +1,9 @@
 """
 Static Files Routes
-Serves frontend files with proper content types.
+Serves the frontend (index.html and its assets) with proper content types.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pathlib import Path
 
 try:
     from backend.config import FRONTEND_DIR
@@ -13,15 +12,25 @@ except ImportError:
 
 router = APIRouter()
 
+# Frontend asset -> content type
+ASSETS = {
+    "app.js": "application/javascript",
+    "camera-manager.js": "application/javascript",
+    "webrtc-manager.js": "application/javascript",
+    "ui-controller.js": "application/javascript",
+    "recognition-handler.js": "application/javascript",
+    "styles.css": "text/css",
+    "logo.png": "image/png",
+    "logo_image.png": "image/png",
+    "logo_text.png": "image/png",
+}
 
-# JavaScript module files
-JS_FILES = [
-    "app.js",
-    "camera-manager.js",
-    "webrtc-manager.js",
-    "ui-controller.js",
-    "recognition-handler.js"
-]
+# Stylesheet changes should show up immediately during development
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 @router.get("/")
@@ -29,7 +38,7 @@ async def root():
     """Serve the frontend index.html."""
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(index_path)
     return {
         "message": "ManaMesh API",
         "docs": "/docs",
@@ -37,66 +46,23 @@ async def root():
     }
 
 
-@router.get("/logo.png")
-async def serve_logo():
-    """Serve the logo image."""
-    logo_path = FRONTEND_DIR / "logo.png"
-    if logo_path.exists():
-        return FileResponse(str(logo_path), media_type="image/png")
-    return {"error": "logo.png not found"}
+def asset_route(filename: str, media_type: str):
+    """Create the handler that serves one frontend asset."""
+    headers = NO_CACHE_HEADERS if media_type == "text/css" else None
+
+    async def serve_asset():
+        path = FRONTEND_DIR / filename
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"{filename} not found")
+        return FileResponse(path, media_type=media_type, headers=headers)
+
+    return serve_asset
 
 
-@router.get("/logo_image.png")
-async def serve_logo_image():
-    """Serve the logo icon image."""
-    logo_path = FRONTEND_DIR / "logo_image.png"
-    if logo_path.exists():
-        return FileResponse(str(logo_path), media_type="image/png")
-    return {"error": "logo_image.png not found"}
-
-
-@router.get("/logo_text.png")
-async def serve_logo_text():
-    """Serve the logo text image."""
-    logo_path = FRONTEND_DIR / "logo_text.png"
-    if logo_path.exists():
-        return FileResponse(str(logo_path), media_type="image/png")
-    return {"error": "logo_text.png not found"}
-
-
-@router.get("/styles.css")
-async def serve_styles():
-    """Serve the custom styles CSS file."""
-    css_path = FRONTEND_DIR / "styles.css"
-    if css_path.exists():
-        return FileResponse(
-            str(css_path), 
-            media_type="text/css",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
-    return {"error": "styles.css not found"}
-
-
-# Dynamically create routes for JS modules
-def create_js_route(filename: str):
-    """Factory function to create JavaScript file routes."""
-    async def serve_js():
-        js_path = FRONTEND_DIR / filename
-        if js_path.exists():
-            return FileResponse(str(js_path), media_type="application/javascript")
-        return {"error": f"{filename} not found"}
-    return serve_js
-
-
-# Register all JS file routes
-for js_file in JS_FILES:
+for _filename, _media_type in ASSETS.items():
     router.add_api_route(
-        f"/{js_file}",
-        create_js_route(js_file),
+        f"/{_filename}",
+        asset_route(_filename, _media_type),
         methods=["GET"],
-        name=f"serve_{js_file.replace('.', '_').replace('-', '_')}"
+        include_in_schema=False,
     )

@@ -1,7 +1,7 @@
 /**
  * ManaMesh - Main Application Coordinator
  * Multiplayer MTG Card Scanner with WebRTC
- * 
+ *
  * This is the main entry point that coordinates all modules:
  * - camera-manager.js: Camera setup and stream management
  * - webrtc-manager.js: WebRTC peer connections and signaling
@@ -28,8 +28,7 @@ import {
     showOnMainFeed,
     showToast,
     toggleFlipHorizontal,
-    toggleFlipVertical,
-    updateCameraTransform
+    toggleFlipVertical
 } from './ui-controller.js';
 
 import {
@@ -40,8 +39,8 @@ import {
     setupCardSearch
 } from './recognition-handler.js';
 
-// API URL configuration
-const API_URL = window.MANAMESH_API_URL || window.location.origin;
+// The backend serves the frontend, so the API lives on the same origin
+const API_URL = window.location.origin;
 
 // Global application state
 const state = {
@@ -55,6 +54,23 @@ const state = {
     peers: new Map(), // userId -> SimplePeer instance
     cameraEnabled: false,
     hasJoinedRoom: false
+};
+
+/**
+ * Callbacks shared by the camera and WebRTC modules. Each module picks the
+ * ones it needs (enableCamera, disableCamera, initializeSocketIO and
+ * createPeerConnection all destructure a subset of this object).
+ */
+const scan = (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast);
+const showMain = (userId) => showOnMainFeed(userId, state, () => setupClickHandler(state, scan, showToast));
+
+const handlers = {
+    showToast,
+    showOnMainFeed: showMain,
+    addCamera: (userId, stream, username, isLocal) => addCamera(userId, stream, username, isLocal, state, showMain),
+    removeCamera: (userId) => removeCamera(userId, state),
+    createPeerConnection: (userId, username, initiator) =>
+        createPeerConnection(userId, username, initiator, state, handlers)
 };
 
 /**
@@ -73,11 +89,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 function initializeTheme() {
     const savedTheme = localStorage.getItem('theme') || 'dim';
     document.documentElement.setAttribute('data-theme', savedTheme);
-    
+
     const themeController = document.querySelector('.theme-controller');
     if (themeController) {
         themeController.checked = savedTheme === 'fantasy';
-        
+
         themeController.addEventListener('change', (e) => {
             const newTheme = e.target.checked ? 'fantasy' : 'dim';
             document.documentElement.setAttribute('data-theme', newTheme);
@@ -87,84 +103,50 @@ function initializeTheme() {
 }
 
 /**
+ * Read the username, stop the setup preview and close the setup modal
+ */
+function beginJoin() {
+    state.username = document.getElementById('usernameInput').value || 'Player';
+    stopSetupStream();
+    document.getElementById('setupModal').classList.remove('modal-open');
+}
+
+function addLocalPlaceholder() {
+    handlers.addCamera('local', null, state.username + ' (You)', true);
+}
+
+function hideNoCamerasMessage() {
+    const noCamerasMsg = document.getElementById('noCamerasMessage');
+    if (noCamerasMsg) noCamerasMsg.style.display = 'none';
+}
+
+/**
  * Join the room with selected camera
  */
 async function joinRoom() {
-    const usernameInput = document.getElementById('usernameInput');
-    state.username = usernameInput.value || 'Player';
-    
-    // Stop setup stream
-    stopSetupStream();
-    
-    // Close modal
-    document.getElementById('setupModal').classList.remove('modal-open');
-    
+    beginJoin();
+
     // Enable camera FIRST (before connecting to socket)
     try {
         if (state.selectedDeviceId) {
-            await enableCamera(state, {
-                removeCamera: (userId) => removeCamera(userId, state),
-                addCamera: (userId, stream, username, isLocal) => 
-                    addCamera(userId, stream, username, isLocal, state, 
-                        (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state, 
-                            (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast), 
-                            showToast))),
-                showOnMainFeed: (userId) => showOnMainFeed(userId, state, 
-                    () => setupClickHandler(state, 
-                        (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast), 
-                        showToast)),
-                createPeerConnection: (userId, username, initiator) =>
-                    createPeerConnection(userId, username, initiator, state, {
-                        removeCamera: (uid) => removeCamera(uid, state),
-                        addCamera: (uid, stream, uname, isLocal) => 
-                            addCamera(uid, stream, uname, isLocal, state, 
-                                (u) => showOnMainFeed(u, state, () => setupClickHandler(state,
-                                    (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                                    showToast))),
-                        showToast
-                    }),
-                showToast
-            });
+            await enableCamera(state, handlers);
         }
     } catch (err) {
         console.error('Failed to enable camera on join:', err);
     }
-    
+
     // Initialize Socket.IO connection
     if (!state.socket || !state.socket.connected) {
-        initializeSocketIO(API_URL, state, {
-            createPeerConnection: (userId, username, initiator) =>
-                createPeerConnection(userId, username, initiator, state, {
-                    removeCamera: (uid) => removeCamera(uid, state),
-                    addCamera: (uid, stream, uname, isLocal) => 
-                        addCamera(uid, stream, uname, isLocal, state, 
-                            (u) => showOnMainFeed(u, state, () => setupClickHandler(state,
-                                (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                                showToast))),
-                    showToast
-                }),
-            addCamera: (userId, stream, username, isLocal) => 
-                addCamera(userId, stream, username, isLocal, state, 
-                    (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-                        (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                        showToast))),
-            removeCamera: (userId) => removeCamera(userId, state),
-            showToast
-        });
-        
+        initializeSocketIO(API_URL, state, handlers);
+
         // Add local user if camera not enabled
         if (!state.cameraEnabled) {
-            addCamera('local', null, state.username + ' (You)', true, state, 
-                (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-                    (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                    showToast)));
+            addLocalPlaceholder();
         }
-        
-        // Hide "no cameras" message
-        const noCamerasMsg = document.getElementById('noCamerasMessage');
-        if (noCamerasMsg) noCamerasMsg.style.display = 'none';
+
+        hideNoCamerasMessage();
     }
-    
+
     showToast(`Welcome, ${state.username}!`, 'success');
 }
 
@@ -172,46 +154,12 @@ async function joinRoom() {
  * Join room without camera
  */
 async function joinRoomWithoutCamera() {
-    const usernameInput = document.getElementById('usernameInput');
-    state.username = usernameInput.value || 'Player';
-    
-    // Stop setup stream
-    stopSetupStream();
-    
-    // Close modal
-    document.getElementById('setupModal').classList.remove('modal-open');
-    
-    // Initialize Socket.IO connection
-    initializeSocketIO(API_URL, state, {
-        createPeerConnection: (userId, username, initiator) =>
-            createPeerConnection(userId, username, initiator, state, {
-                removeCamera: (uid) => removeCamera(uid, state),
-                addCamera: (uid, stream, uname, isLocal) => 
-                    addCamera(uid, stream, uname, isLocal, state, 
-                        (u) => showOnMainFeed(u, state, () => setupClickHandler(state,
-                            (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                            showToast))),
-                showToast
-            }),
-        addCamera: (userId, stream, username, isLocal) => 
-            addCamera(userId, stream, username, isLocal, state, 
-                (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-                    (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                    showToast))),
-        removeCamera: (userId) => removeCamera(userId, state),
-        showToast
-    });
-    
-    // Add local user without camera
-    addCamera('local', null, state.username + ' (You)', true, state, 
-        (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-            (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-            showToast)));
-    
-    // Hide "no cameras" message
-    const noCamerasMsg = document.getElementById('noCamerasMessage');
-    if (noCamerasMsg) noCamerasMsg.style.display = 'none';
-    
+    beginJoin();
+
+    initializeSocketIO(API_URL, state, handlers);
+    addLocalPlaceholder();
+    hideNoCamerasMessage();
+
     showToast(`Welcome, ${state.username}! Enable camera when ready.`, 'success');
 }
 
@@ -232,43 +180,9 @@ function reopenCameraSetup() {
  */
 function toggleCameraEnabled(checkbox) {
     if (checkbox.checked && !state.cameraEnabled) {
-        enableCamera(state, {
-            removeCamera: (userId) => removeCamera(userId, state),
-            addCamera: (userId, stream, username, isLocal) => 
-                addCamera(userId, stream, username, isLocal, state, 
-                    (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-                        (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                        showToast))),
-            showOnMainFeed: (userId) => showOnMainFeed(userId, state, 
-                () => setupClickHandler(state,
-                    (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                    showToast)),
-            createPeerConnection: (userId, username, initiator) =>
-                createPeerConnection(userId, username, initiator, state, {
-                    removeCamera: (uid) => removeCamera(uid, state),
-                    addCamera: (uid, stream, uname, isLocal) => 
-                        addCamera(uid, stream, uname, isLocal, state, 
-                            (u) => showOnMainFeed(u, state, () => setupClickHandler(state,
-                                (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                                showToast))),
-                    showToast
-                }),
-            showToast
-        });
+        enableCamera(state, handlers);
     } else if (!checkbox.checked && state.cameraEnabled) {
-        disableCamera(state, {
-            removeCamera: (userId) => removeCamera(userId, state),
-            addCamera: (userId, stream, username, isLocal) => 
-                addCamera(userId, stream, username, isLocal, state, 
-                    (uid) => showOnMainFeed(uid, state, () => setupClickHandler(state,
-                        (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                        showToast))),
-            showOnMainFeed: (userId) => showOnMainFeed(userId, state, 
-                () => setupClickHandler(state,
-                    (x, y, w, h) => scanRegion(x, y, w, h, API_URL, state, displayCard, showToast),
-                    showToast)),
-            showToast
-        });
+        disableCamera(state, handlers);
     }
 }
 
