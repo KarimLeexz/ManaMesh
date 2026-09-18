@@ -29,6 +29,8 @@ def _save_scan(image_bytes: bytes, x: Optional[float], y: Optional[float], resul
     stem = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
     (folder / f"{stem}.jpg").write_bytes(image_bytes)
     outcome = None if result is None else {k: result[k] for k in ("name", "distance", "margin", "corners")}
+    if outcome is not None:
+        outcome["certain"] = result.get("certain", True)
     (folder / f"{stem}.json").write_text(json.dumps({"x": x, "y": y, "result": outcome}, indent=1), encoding="utf-8")
 
 
@@ -73,6 +75,17 @@ class CardRecognitionService:
                 return {
                     "success": False,
                     "message": "No card found there. Click on the card itself, with the whole card in view."
+                }
+
+            if not result.get("certain", True):
+                # Plausible but unsure: offer the best guesses for the user to confirm
+                fields = ("name", "scryfall_id", "set", "collector_number", "image_url", "distance")
+                suggestions = ([{k: result[k] for k in fields}] + result["alternatives"])[:3]
+                return {
+                    "success": False,
+                    "message": "Not sure - is it one of these?",
+                    "suggestions": suggestions,
+                    "corners": result["corners"]
                 }
 
             print(f"✓ Recognized: {result['name']} (distance {result['distance']}/{recognizer.max_distance})")

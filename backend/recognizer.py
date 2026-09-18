@@ -40,6 +40,7 @@ _MAX_ALTERNATIVES = 3
 # card that fills its crop is recognized very reliably; the sizes cover cards from small
 # (a full table in view) to large (one card up close).
 _CLICK_CROP_SIZES = (0.2, 0.27, 0.35, 0.45, 0.58, 0.75, 0.95)
+_SUGGEST_MAX_DISTANCE = 90  # weaker matches than the click limits below are still offered as suggestions, up to here
 _CLICK_MAX_DISTANCE = 76   # a click is held to a slightly stricter limit than the general threshold...
 _CLICK_SURE_DISTANCE = 40  # ...and beyond this distance the match must also stand apart from look-alikes
 _CLICK_MIN_MARGIN = 14
@@ -64,19 +65,20 @@ class CardRecognizer:
             print(f"⚠️  Card index not found at {index_path}")
             print("   Run './build-db.ps1' (or 'python backend/build_index.py') to build it.")
 
-    def recognize(self, img: np.ndarray, point: Optional[Tuple[float, float]] = None) -> Optional[Dict[str, Any]]:
+    def recognize(self, img: np.ndarray, point: Optional[Tuple[float, float]] = None,
+                  max_distance: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Identify the card in a BGR image (the best one), or with `point` (x, y in pixels)
         only a card whose outline contains that point.
 
         Returns the matched card's info plus 'distance', 'margin', 'confidence' (0-1),
         'corners' (the outline as 4 x [x, y] fractions of the image size) and 'alternatives',
-        or None if nothing matched closely enough.
+        or None if nothing matched within `max_distance` (default: the configured threshold).
         """
         if self.index is None:
             raise FileNotFoundError(self.index_path)
 
-        max_distance = self.max_distance
+        max_distance = max_distance or self.max_distance
         outlines = card_vision.find_outlines(img, limit=6 if point else 3)
         if point is not None:
             outlines = [q for q in outlines if _contains(q, point)]
@@ -117,7 +119,7 @@ class CardRecognizer:
         # How much closer the match is than the closest card with a different name: a real
         # match stands far apart, a look-alike on a plain image has many near-equal rivals
         result["margin"] = int(dist[row][self.index.names != self.index.names[best]].min() - best_dist)
-        result["confidence"] = round(max(0.0, 1.0 - best_dist / max_distance), 3)
+        result["confidence"] = round(max(0.0, 1.0 - best_dist / self.max_distance), 3)
         result["corners"] = [[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in quad]
         result["alternatives"] = self._alternatives(dist[row], result["name"], max_distance)
         return result
@@ -128,6 +130,10 @@ class CardRecognizer:
 
         Crops of several sizes are taken around the click; each is searched for a card whose
         outline contains the click, and the closest match overall wins.
+
+        The result carries 'certain': True for a clear match, False for a plausible but
+        unsure one (the caller should offer it, with 'alternatives', as a suggestion to
+        confirm rather than accept it outright).
         """
         h, w = img.shape[:2]
         best: Optional[Dict[str, Any]] = None
@@ -149,18 +155,23 @@ class CardRecognizer:
                     if abs(zoom - 1) > 0.05:
                         crop = cv2.resize(crop, None, fx=zoom, fy=zoom,
                                           interpolation=cv2.INTER_CUBIC if zoom > 1 else cv2.INTER_AREA)
-                    result = self.recognize(crop, point=((x - x0) * zoom, (y - y0) * zoom))
+                    result = self.recognize(crop, point=((x - x0) * zoom, (y - y0) * zoom),
+                                            max_distance=_SUGGEST_MAX_DISTANCE)
                     if result is not None and (best is None or result["distance"] < best["distance"]):
                         # express the outline relative to the whole image, not the crop
                         result["corners"] = [[round((px * cw + x0) / w, 4), round((py * ch + y0) / h, 4)] for px, py in result["corners"]]
                         best = result
 
-        # A click must find a clearly identified card: close, and well apart from look-alikes.
-        # (Better to say "nothing here" than to show a wrong card for a click.)
-        if best is not None and (best["distance"] > _CLICK_MAX_DISTANCE
-                                 or (best["distance"] > _CLICK_SURE_DISTANCE and best["margin"] < _CLICK_MIN_MARGIN)):
-            print(f"⚠️  Click match '{best['name']}' rejected (distance {best['distance']}, margin {best['margin']})")
+        if best is None:
             return None
+
+        # A clear match is close and stands well apart from look-alikes. Anything weaker is only
+        # a suggestion: a person can see at a glance whether "Abrade?" is right, and a wrong
+        # suggestion costs nothing, whereas a wrong automatic answer would.
+        best["certain"] = not (best["distance"] > _CLICK_MAX_DISTANCE
+                               or (best["distance"] > _CLICK_SURE_DISTANCE and best["margin"] < _CLICK_MIN_MARGIN))
+        if not best["certain"]:
+            print(f"⚠️  Unsure: '{best['name']}' (distance {best['distance']}, margin {best['margin']}) offered as a suggestion")
         return best
 
     def _alternatives(self, row_dist: np.ndarray, best_name: str, max_distance: int) -> List[Dict[str, Any]]:
