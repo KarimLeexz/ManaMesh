@@ -80,6 +80,9 @@ class CardRecognizer:
         # Best row among those inside their own threshold
         ok = nearest_dist <= np.array(row_limits)
         if not ok.any():
+            closest = int(nearest_dist.argmin())
+            print(f"⚠️  Closest was '{self.index.names[nearest[closest]]}' at distance "
+                  f"{int(nearest_dist[closest])} (limit {max_distance})")
             return None
         row = int(np.where(ok, nearest_dist, np.inf).argmin())
         best, best_dist = int(nearest[row]), float(nearest_dist[row])
