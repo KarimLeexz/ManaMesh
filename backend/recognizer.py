@@ -44,6 +44,12 @@ _SUGGEST_MAX_DISTANCE = 90  # weaker matches than the click limits below are sti
 _CLICK_MAX_DISTANCE = 76   # a click is held to a slightly stricter limit than the general threshold...
 _CLICK_SURE_DISTANCE = 40  # ...and beyond this distance the match must also stand apart from look-alikes
 _CLICK_MIN_MARGIN = 14
+_CLICK_ASPECT = (0.62, 0.82)   # a card outline's short/long side must be near a card's 0.716
+_MIN_EDGE_SUPPORT = 0.82   # ...and run along real edges: measured on real scans, true outlines score 0.87-1.00, junk boxes 0.37-0.79
+_UNSUPPORTED_MAX_DISTANCE = 64  # an outline without edge support only counts for matches at least this close
+_EDGE_BAND = 0.03         # how close to the outline (fraction of the card's short side) an edge must be
+_EDGE_SAMPLES = 30         # points checked per side
+_EDGE_MIN_STRENGTH = 0.25  # relative edge strength that counts as an edge (see _edge_strength)
 _CROP_PIXELS = 720         # every crop is analysed at this height, in pixels
 _CLICK_OFFSETS = (0.0,)    # crop centre shifts around the click, as fractions of the crop size (per axis)
 _CROP_ASPECT = 0.8         # crop width / height: a bit roomier than a card (0.716)
@@ -80,11 +86,21 @@ class CardRecognizer:
 
         max_distance = max_distance or self.max_distance
         outlines = card_vision.find_outlines(img, limit=6 if point else 3)
+        outline_limits = [max_distance] * len(outlines)
         if point is not None:
-            outlines = [q for q in outlines if _contains(q, point)]
-        candidates = [(quad, card_vision.flatten(img, quad), max_distance) for quad in outlines]
+            # A click only considers card-shaped outlines around it. One that does not follow real
+            # edges (a box over bare desk) may only win with a very close match: on a dark mat a
+            # real card can have weak edges, but a close match is trustworthy anyway.
+            edges = _edge_strength(img)
+            outlines = [q for q in outlines if _contains(q, point) and _card_shaped(q)]
+            outline_limits = [max_distance if _edge_support(q, edges) >= _MIN_EDGE_SUPPORT
+                              else min(max_distance, _UNSUPPORTED_MAX_DISTANCE) for q in outlines]
+        candidates = [(quad, card_vision.flatten(img, quad), limit) for quad, limit in zip(outlines, outline_limits)]
+        # The whole-image fallback stays tied to the configured threshold, even when a looser
+        # limit is used to collect suggestions: it hashes background too and is the likeliest
+        # source of look-alike matches
         candidates.append((card_vision.whole_image_quad(img), card_vision.whole_image_as_card(img),
-                           max_distance - _FALLBACK_STRICTNESS))
+                           min(max_distance, self.max_distance) - _FALLBACK_STRICTNESS))
 
         # One row per (candidate, rotation, shift); all matched in a single matrix product
         hashes: List[np.ndarray] = []
@@ -199,6 +215,43 @@ class CardRecognizer:
             "unique_names": self.index.unique_names,
             "max_distance": self.max_distance,
         }
+
+
+def _edge_strength(img: np.ndarray) -> np.ndarray:
+    """
+    Edge strength of the image relative to its strongest edges (1.0 = as strong as the
+    strongest 1%). Relative, because a crop that was enlarged smooths every edge and would
+    otherwise look weaker than the same crop at native size.
+    """
+    gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (3, 3), 0)
+    magnitude = np.hypot(cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1))
+    return magnitude / max(float(np.percentile(magnitude, 99)), 1.0)
+
+
+def _edge_support(quad: np.ndarray, edges: np.ndarray) -> float:
+    """
+    Fraction of points along the outline that lie on a real edge in the image. A real card's
+    outline follows its border; a box drawn around bare desk does not, however card-shaped it is.
+    """
+    short = min(np.linalg.norm(quad[1] - quad[0]), np.linalg.norm(quad[3] - quad[0]))
+    reach = max(2, int(_EDGE_BAND * short))
+    hits = total = 0
+    for i in range(4):
+        start, end = quad[i], quad[(i + 1) % 4]
+        for t in np.linspace(0.08, 0.92, _EDGE_SAMPLES):
+            x, y = (start + t * (end - start)).astype(int)
+            window = edges[max(y - reach, 0):y + reach + 1, max(x - reach, 0):x + reach + 1]
+            total += 1
+            hits += bool(window.size and window.max() > _EDGE_MIN_STRENGTH)
+    return hits / total
+
+
+def _card_shaped(quad: np.ndarray) -> bool:
+    """Does the outline have a card's proportions (short/long side near 0.716)?"""
+    width, height = np.linalg.norm(quad[1] - quad[0]), np.linalg.norm(quad[3] - quad[0])
+    if min(width, height) < 1:
+        return False
+    return _CLICK_ASPECT[0] < min(width, height) / max(width, height) < _CLICK_ASPECT[1]
 
 
 def _contains(quad: np.ndarray, point: Tuple[float, float]) -> bool:
