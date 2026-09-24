@@ -12,6 +12,7 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 - 🎮 **Game table** - Spelltable-style: one big camera + small ones, or all cameras the same size, no scrolling
 - ❤️ **Life & commanders** - Every player has a life counter (starts at 40) and a commander, synced for everyone
 - 🎲 **Dice & coin** - d4, d6, d8, d10, d12, d20 and a coin flip, animated and shown to the whole table
+- ⏭️ **Turns** - Random turn order per game, pass with Space, easy to undo
 - 🔄 **New game** - Reset life, commanders or both for the whole table (starting life 20/30/40)
 - 🪞 **Camera mirroring** - Mirror / flip your own camera for everyone, or anyone's camera just for you
 - 🎨 **Modern UI** - Built with daisyUI 5 and Tailwind CSS 4
@@ -105,14 +106,19 @@ Navigate to: **http://localhost:8000**
 
 1. **Join** - Enter your name, pick your camera and mirror / flip it until your cards read the right way round
    (the preview shows exactly what the others see). Allow camera access when the browser asks
-2. **Layout** - *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
+2. **Layout** - The two buttons at the right of the top bar: *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
 3. **Life** - Tap − / + on any player's tile (hold to count faster). Everyone can change everyone's life,
    so whoever deals the damage can count it
 4. **Commander** - Tap *Commander* on your tile to search for it (partner / background: up to two)
 5. **Dice & coin** - Top bar; the result pops up on every player's screen and lands in the *Log*
-6. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table
-7. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel
-8. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
+6. **Turns** - *Start turns* (or **Space**) shuffles a random turn order; after that **Space** or
+   *Pass turn* passes it on, for whoever's turn it is. Passed by mistake? **Shift+Space** or ↶ takes
+   it back, and the ⋮ menu on a tile gives the turn straight to that player. In *Focus* the player
+   whose turn it is is shown big. Once there is a turn order, the cameras are arranged in it (seating order)
+7. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table. Resetting
+   life starts a new game with a newly shuffled turn order
+8. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel
+9. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
 
 The ⋮ menu on a tile mirrors that camera just for you, or (on your own tile) changes what everybody sees.
 

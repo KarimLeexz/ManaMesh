@@ -15,6 +15,8 @@ const ICONS = {
     mirror: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7 3 12l5 5z"/><path d="m16 7 5 5-5 5"/></svg>',
     flip: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M7 8l5-5 5 5z"/><path d="m7 16 5 5 5-5"/></svg>',
     focus: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+    crownSmall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
+    turn: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></svg>',
     crown: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
     camera: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>'
 };
@@ -32,7 +34,7 @@ let hooks = null;
  * @param {Object} appState - Application state
  * @param {Object} appHooks - Actions the tiles trigger:
  *   changeLife(id, delta), scanTile(id, clientX, clientY), openCommanderPicker(),
- *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value)
+ *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value), giveTurn(id)
  */
 function initTableView(appState, appHooks) {
     state = appState;
@@ -153,6 +155,7 @@ function createTile(player) {
                 <button class="tile-icon-btn menu-btn" title="Options">${ICONS.dots}</button>
             </div>
         </div>
+        <div class="turn-badge"><span class="turn-dot"></span><span class="turn-text"></span></div>
         <div class="tile-bottom">
             <div class="commanders"></div>
             <div class="life">
@@ -259,16 +262,21 @@ function updateTile(player, { quiet = false } = {}) {
     // Commanders
     const box = tile.querySelector('.commanders');
     if (player.commanders.length) {
+        // Small tiles show the art (name as tooltip), big tiles just the name
         box.innerHTML = player.commanders.map((card, i) => `
-            <button class="commander-chip" data-index="${i}" title="${escapeHtml(card.name)}">
+            <button class="commander-chip tooltip tooltip-right" data-index="${i}" data-tip="${escapeHtml(card.name)}" aria-label="${escapeHtml(card.name)}">
                 <img src="${escapeHtml(card.art_url || card.image_url)}" alt="" draggable="false" />
-                <span class="commander-name">${escapeHtml(card.name)}</span>
+                <span class="commander-name">${ICONS.crownSmall}${escapeHtml(card.name)}</span>
             </button>`).join('');
     } else if (player.isLocal) {
         box.innerHTML = `<button class="commander-add">${ICONS.crown} Commander</button>`;
     } else {
         box.innerHTML = '';
     }
+    const hasTurn = state.turnId === player.id;
+    tile.classList.toggle('has-turn', hasTurn);
+    tile.querySelector('.turn-text').textContent = player.isLocal ? 'Your turn' : `${player.username}'s turn`;
+
     const art = player.commanders[0]?.art_url;
     player.placeholder.style.backgroundImage = art ? `url("${art}")` : '';
     player.placeholder.querySelector('span').textContent = player.isLocal ? 'Your camera is off' : 'No camera';
@@ -299,6 +307,25 @@ function clearOverlay(player) {
     player.tile.querySelector('.suggestions')?.remove();
 }
 
+/** Mark whose turn it is (state.turnId) on every tile */
+function updateTurnMarkers() {
+    for (const player of state.players.values()) updateTile(player, { quiet: true });
+    renderLayout();   // the turn order is also the seating order
+}
+
+/**
+ * Players in seating order: the turn order once there is one (anyone not in it yet at
+ * the end), otherwise the order they joined in. It doesn't rotate with the turn, so
+ * every camera keeps its place.
+ */
+function seatingOrder() {
+    const players = [...state.players.values()];
+    const order = state.turn?.order || [];
+    if (!order.length) return players;
+    const seat = new Map(order.map((sid, i) => [sid === state.socket?.id ? 'local' : sid, i]));
+    return players.sort((a, b) => (seat.get(a.id) ?? order.length) - (seat.get(b.id) ?? order.length));
+}
+
 // ============================== Layout ==============================
 
 /**
@@ -308,7 +335,11 @@ function clearOverlay(player) {
 function setLayout(layout) {
     state.layout = layout;
     try { localStorage.setItem('layout', layout); } catch { /* private mode */ }
-    document.querySelectorAll('input[name="layout"]').forEach(input => { input.checked = input.value === layout; });
+    document.querySelectorAll('button[data-layout]').forEach(button => {
+        const on = button.dataset.layout === layout;
+        button.classList.toggle('btn-active', on);
+        button.setAttribute('aria-pressed', String(on));
+    });
     renderLayout();
 }
 
@@ -332,7 +363,7 @@ function renderLayout() {
     const table = document.getElementById('table');
     const stage = document.getElementById('stage');
     const strip = document.getElementById('strip');
-    const players = [...state.players.values()];
+    const players = seatingOrder();
 
     table.dataset.layout = state.layout;
     const empty = document.getElementById('emptyTable');
@@ -350,9 +381,10 @@ function renderLayout() {
         strip.style.display = others.length ? 'flex' : 'none';
         strip.style.height = `${Math.round(Math.min(170, Math.max(80, table.clientHeight * 0.2)))}px`;
 
+        arrange(stage, players.filter(p => p.id === state.focusId));
+        arrange(strip, others);
         for (const player of players) {
             const isMain = player.id === state.focusId;
-            place(player, isMain ? stage : strip);
             player.tile.classList.toggle('is-main', isMain);
             player.tile.classList.toggle('is-thumb', !isMain);
             player.tile.style.width = '';
@@ -360,19 +392,22 @@ function renderLayout() {
         }
     } else {
         strip.style.display = 'none';
-        for (const player of players) {
-            place(player, stage);
-            player.tile.classList.remove('is-main', 'is-thumb');
-        }
+        arrange(stage, players);
+        for (const player of players) player.tile.classList.remove('is-main', 'is-thumb');
         fitGrid(stage, players.length);
     }
 }
 
-/** Move a tile into a container (only if needed: moving a video can pause it) */
-function place(player, container) {
-    if (player.tile.parentElement === container) return;
-    container.appendChild(player.tile);
-    if (player.stream) player.video.play().catch(() => {});
+/**
+ * Put these players' tiles into a container, in this order. Tiles already in the right
+ * spot aren't touched (moving a video can pause it, so moved ones are restarted).
+ */
+function arrange(container, players) {
+    players.forEach((player, i) => {
+        if (container.children[i] === player.tile) return;
+        container.insertBefore(player.tile, container.children[i] || null);
+        if (player.stream) player.video.play().catch(() => {});
+    });
 }
 
 /**
@@ -423,6 +458,9 @@ function openTileMenu(id, anchor) {
     if (!(state.layout === 'focus' && state.focusId === id)) {
         items.push(`<li><a data-action="focus">${ICONS.focus} Show big</a></li>`);
     }
+    if (state.turn?.order.length && state.turnId !== id) {
+        items.push(`<li><a data-action="turn">${ICONS.turn} ${player.isLocal ? 'Make it my turn' : `Give ${escapeHtml(player.username)} the turn`}</a></li>`);
+    }
     if (player.isLocal) {
         items.push(`<div class="divider my-0"></div>`);
         items.push(`<li><a data-action="commander">${ICONS.crown} ${player.commanders.length ? 'Change commander' : 'Choose commander'}</a></li>`);
@@ -456,6 +494,7 @@ function openTileMenu(id, anchor) {
             case 'commander': hooks.openCommanderPicker(); break;
             case 'setup': hooks.openSetup(); break;
             case 'camera': hooks.toggleCamera(); break;
+            case 'turn': hooks.giveTurn(id); break;
         }
     };
 }
@@ -502,6 +541,7 @@ export {
     removePlayer,
     effectiveFlip,
     updateTile,
+    updateTurnMarkers,
     setLayout,
     setFocus,
     renderLayout,
