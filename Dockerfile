@@ -3,7 +3,7 @@ FROM node:20-slim AS frontend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY frontend/src ./frontend/src
+COPY frontend ./frontend
 RUN npm run build
 
 # --- Stage 2: runtime ---
