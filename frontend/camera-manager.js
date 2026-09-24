@@ -1,6 +1,11 @@
 /**
  * Camera Manager Module
- * Handles camera setup, enumeration, stream management, and enable/disable functionality
+ * The join / settings dialog (name, camera, mirroring) with its live preview, and the
+ * local camera stream: turning it on and off and switching to another camera mid-game.
+ *
+ * The preview is opened with the same high-quality settings as the real camera, so
+ * joining simply keeps the preview stream running: no second camera start (some cameras,
+ * especially on Windows, refuse to be opened twice).
  */
 
 /**
@@ -31,218 +36,303 @@ function describeAndTuneStream(stream) {
     return `${width}x${height} @ ${Math.round(frameRate || 0)}fps`;
 }
 
+function stopStream(stream) {
+    stream?.getTracks().forEach(track => track.stop());
+}
+
+function deviceOf(stream) {
+    return stream?.getVideoTracks()[0]?.getSettings().deviceId || null;
+}
+
+// The stream shown in the dialog (may be the live camera itself when changing settings)
+const preview = { stream: null, requestId: 0 };
+
+// ============================== Setup dialog ==============================
+
 /**
- * Initialize camera setup modal with device enumeration and preview
+ * Open the join / settings dialog
  * @param {Object} state - Application state object
  * @param {Function} showToast - Toast notification function
  */
-async function initializeCameraSetup(state, showToast) {
-    const setupVideo = document.getElementById('setupVideo');
-    const cameraSelect = document.getElementById('cameraSelect');
-    
+async function openSetup(state, showToast) {
+    const modal = document.getElementById('setupModal');
+    const joined = state.hasJoinedRoom;
+
+    document.getElementById('setupTitle').textContent = joined ? 'Name & camera' : 'Join the table';
+    document.getElementById('setupSubtitle').textContent = joined ? 'Changes apply right away' : "Name and camera, and you're in";
+    document.getElementById('joinButton').textContent = joined ? 'Save' : 'Join table';
+    document.getElementById('joinWithoutCameraButton').textContent = joined ? 'Turn camera off' : 'Join without camera';
+    document.getElementById('joinWithoutCameraButton').classList.toggle('hidden', joined && !state.cameraEnabled);
+    document.getElementById('setupCancelButton').classList.toggle('hidden', !joined);
+
+    document.getElementById('usernameInput').value = state.username || '';
+    document.getElementById('flipHInput').checked = state.flipH;
+    document.getElementById('flipVInput').checked = state.flipV;
+    updatePreviewTransform();
+
+    if (!modal.open) modal.showModal();
+    if (!state.username) document.getElementById('usernameInput').focus();
+
+    // While playing, the preview starts out as the camera that's already live
+    if (joined && state.cameraEnabled && state.localStream) {
+        showPreview(state.localStream);
+        await fillCameraList(state, deviceOf(state.localStream));
+    } else {
+        await startPreview(state, state.selectedDeviceId, showToast);
+    }
+}
+
+/**
+ * Close the dialog. The preview camera keeps running only if it became the live camera.
+ * @param {Object} state - Application state object
+ */
+function closeSetup(state) {
+    const modal = document.getElementById('setupModal');
+    if (modal.open) modal.close();
+    releasePreview(state);
+}
+
+/**
+ * Hand the preview stream over to the caller (it becomes the live camera)
+ * @returns {MediaStream|null}
+ */
+function takePreviewStream() {
+    const stream = preview.stream;
+    preview.stream = null;
+    return stream?.getVideoTracks().some(t => t.readyState === 'live') ? stream : null;
+}
+
+function releasePreview(state) {
+    if (preview.stream && preview.stream !== state.localStream) stopStream(preview.stream);
+    preview.stream = null;
+    document.getElementById('setupVideo').srcObject = null;
+}
+
+function showPreview(stream) {
+    const video = document.getElementById('setupVideo');
+    preview.stream = stream;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+    setNoCamera(null);
+}
+
+function setNoCamera(message) {
+    const box = document.getElementById('setupNoCamera');
+    box.classList.toggle('hidden', !message);
+    box.classList.toggle('flex', !!message);
+    if (message) document.getElementById('setupNoCameraText').textContent = message;
+}
+
+/**
+ * Show a camera in the preview
+ * @param {Object} state - Application state object
+ * @param {string|null} deviceId - null for the browser's default camera
+ * @param {Function} showToast - Toast notification function
+ */
+async function startPreview(state, deviceId, showToast) {
+    const requestId = ++preview.requestId;
+    const select = document.getElementById('cameraSelect');
+
+    // Stop the previous preview first (unless it is the live camera)
+    releasePreview(state);
+
+    // The live camera can be shown as it is, no need to open it a second time
+    if (state.localStream && deviceId && deviceOf(state.localStream) === deviceId) {
+        showPreview(state.localStream);
+        return;
+    }
+
     try {
-        // First, request camera permissions with a basic stream
-        console.log('Requesting camera permission...');
-        const tempStream = await navigator.mediaDevices.getUserMedia({ 
-            video: true,
-            audio: false 
-        });
-        
-        console.log('Camera permission granted!');
-        
-        // Show preview immediately
-        setupVideo.srcObject = tempStream;
-        
-        // Now enumerate devices (labels will be available after permission)
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
-        
-        console.log(`Found ${videoDevices.length} cameras:`, videoDevices);
-        
-        // Populate camera dropdown
-        cameraSelect.innerHTML = '';
-        
-        if (videoDevices.length === 0) {
-            cameraSelect.innerHTML = '<option>No cameras found</option>';
-            showToast('No cameras detected', 'warning');
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(deviceId) });
+        } catch (err) {
+            // A remembered camera that is gone now: fall back to the default one
+            if (!deviceId || err.name === 'NotAllowedError') throw err;
+            stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(null) });
+        }
+
+        // The dialog was closed or another camera chosen while this one was starting
+        if (requestId !== preview.requestId || !document.getElementById('setupModal').open) {
+            stopStream(stream);
             return;
         }
-        
-        videoDevices.forEach((device, index) => {
-            const option = document.createElement('option');
-            option.value = device.deviceId;
-            option.textContent = device.label || `Camera ${index + 1}`;
-            cameraSelect.appendChild(option);
-        });
-        
-        // Set first camera as default
-        state.selectedDeviceId = videoDevices[0].deviceId;
-        cameraSelect.value = state.selectedDeviceId;
-        
-        // Listen for camera changes
-        cameraSelect.addEventListener('change', async (e) => {
-            const newDeviceId = e.target.value;
-            console.log(`Switching to camera: ${newDeviceId}`);
-            
-            state.selectedDeviceId = newDeviceId;
-            
-            // Stop old stream
-            const oldStream = setupVideo.srcObject;
-            if (oldStream) {
-                oldStream.getTracks().forEach(track => {
-                    track.stop();
-                    console.log('Stopped track:', track.label);
-                });
-            }
-            
-            // Start new stream with selected camera
-            try {
-                const newStream = await navigator.mediaDevices.getUserMedia({
-                    video: videoConstraints(newDeviceId)
-                });
-                setupVideo.srcObject = newStream;
-                console.log(`Switched to new camera successfully (${describeAndTuneStream(newStream)})`);
-            } catch (err) {
-                console.error('Error switching camera:', err);
-                showToast('Failed to switch camera', 'error');
-            }
-        });
-        
-        showToast('Camera ready! Select your camera and click Join Room.', 'success');
-        
+
+        console.log(`Preview camera: ${describeAndTuneStream(stream)}`);
+        showPreview(stream);
+        state.selectedDeviceId = deviceOf(stream) || deviceId;
+
+        // Camera names are only available once permission was granted, so list them now
+        await fillCameraList(state, state.selectedDeviceId);
     } catch (err) {
         console.error('Error accessing camera:', err);
-        
-        // More specific error messages
-        if (err.name === 'NotAllowedError') {
-            showToast('Camera access denied. Please allow camera permissions in your browser.', 'error');
-            cameraSelect.innerHTML = '<option>Permission denied</option>';
-        } else if (err.name === 'NotFoundError') {
-            showToast('No camera found. Please connect a camera.', 'error');
-            cameraSelect.innerHTML = '<option>No camera found</option>';
-        } else {
-            showToast(`Camera error: ${err.message}`, 'error');
-            cameraSelect.innerHTML = '<option>Error loading cameras</option>';
+        if (requestId !== preview.requestId) return;
+
+        const message = {
+            NotAllowedError: 'Camera access was blocked. Allow it in the browser to join with a camera.',
+            NotFoundError: 'No camera found',
+            NotReadableError: 'The camera is in use by another program'
+        }[err.name] || `Camera error: ${err.message}`;
+        setNoCamera(message);
+        select.innerHTML = `<option disabled selected>${err.name === 'NotAllowedError' ? 'Permission denied' : 'No camera available'}</option>`;
+        showToast(message, 'warning');
+    }
+}
+
+/**
+ * Fill the camera dropdown
+ * @param {Object} state - Application state object
+ * @param {string|null} currentId - Camera to show as selected
+ */
+async function fillCameraList(state, currentId) {
+    const select = document.getElementById('cameraSelect');
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+
+    select.innerHTML = '';
+    if (devices.length === 0) {
+        select.innerHTML = '<option disabled selected>No cameras found</option>';
+        return;
+    }
+    devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        select.appendChild(option);
+    });
+    if (currentId && devices.some(d => d.deviceId === currentId)) select.value = currentId;
+}
+
+/**
+ * Wire up the dialog's camera dropdown and mirror controls
+ * @param {Object} state - Application state object
+ * @param {Function} showToast - Toast notification function
+ */
+function setupCameraDialog(state, showToast) {
+    document.getElementById('cameraSelect').addEventListener('change', (e) => {
+        startPreview(state, e.target.value, showToast);
+    });
+
+    for (const key of ['flipH', 'flipV']) {
+        const input = document.getElementById(`${key}Input`);
+        input.addEventListener('change', updatePreviewTransform);
+        document.querySelector(`[data-flip-button="${key}"]`).addEventListener('click', () => {
+            input.checked = !input.checked;
+            updatePreviewTransform();
+        });
+    }
+}
+
+/** Show the preview exactly as the others will see it */
+function updatePreviewTransform() {
+    const flipH = document.getElementById('flipHInput').checked;
+    const flipV = document.getElementById('flipVInput').checked;
+    document.getElementById('setupVideo').style.transform = `scale(${flipH ? -1 : 1}, ${flipV ? -1 : 1})`;
+    document.querySelector('[data-flip-button="flipH"]').classList.toggle('btn-primary', flipH);
+    document.querySelector('[data-flip-button="flipV"]').classList.toggle('btn-primary', flipV);
+}
+
+// ============================== Live camera ==============================
+
+/**
+ * Make a stream the live camera: shown on our tile and sent to every other player.
+ * If a camera is live already, its track is swapped in place in every connection (no
+ * reconnect); otherwise the connections are rebuilt so they carry video.
+ * @param {Object} state - Application state object
+ * @param {MediaStream} stream
+ * @param {Object} handlers - { setPlayerStream, createPeerConnection, showToast }
+ */
+async function useStream(state, stream, { setPlayerStream, createPeerConnection, showToast }) {
+    if (stream === state.localStream) return;
+    const quality = describeAndTuneStream(stream);
+    const oldStream = state.localStream;
+    state.selectedDeviceId = deviceOf(stream) || state.selectedDeviceId;
+
+    if (state.cameraEnabled && oldStream) {
+        const oldTrack = oldStream.getVideoTracks()[0];
+        const newTrack = stream.getVideoTracks()[0];
+        for (const peer of state.peers.values()) {
+            try {
+                if (!peer.destroyed) peer.replaceTrack(oldTrack, newTrack, oldStream);
+            } catch (err) {
+                console.warn('Could not swap camera in a connection:', err);
+            }
+        }
+        // Keep the stream object the connections know about, just with the new track in it
+        oldStream.removeTrack(oldTrack);
+        oldStream.addTrack(newTrack);
+        oldTrack.stop();
+        stream.getTracks().filter(t => t !== newTrack).forEach(t => t.stop());
+        setPlayerStream('local', oldStream);
+        console.log(`✓ Switched camera (${quality})`);
+        showToast(`Camera switched (${quality})`, 'success');
+        return;
+    }
+
+    state.localStream = stream;
+    state.cameraEnabled = true;
+    setPlayerStream('local', stream);
+    console.log(`✓ Local camera enabled (${quality})`);
+
+    if (state.socket?.connected) {
+        // Peers throw away their connection to us and wait for our new one, which carries video
+        state.socket.emit('camera-status-changed', { enabled: true });
+        for (const [userId, oldPeer] of [...state.peers.entries()]) {
+            oldPeer.destroy();
+            state.peers.delete(userId);
+            createPeerConnection(userId, true);
         }
     }
 }
 
 /**
- * Enable local camera and create media stream
+ * Turn the local camera on again (with the last chosen camera)
  * @param {Object} state - Application state object
- * @param {Function} removeCamera - Function to remove camera from UI
- * @param {Function} addCamera - Function to add camera to UI
- * @param {Function} showOnMainFeed - Function to show camera on main feed
- * @param {Function} createPeerConnection - Function to create WebRTC peer connection
- * @param {Function} showToast - Toast notification function
+ * @param {Object} handlers - { setPlayerStream, createPeerConnection, showToast }
  */
-async function enableCamera(state, { removeCamera, addCamera, showOnMainFeed, createPeerConnection, showToast }) {
-    // Prevent multiple enables or re-enabling while already enabled
-    if (state.cameraEnabled && state.localStream) {
-        console.log('Camera already enabled, skipping...');
-        return;
-    }
-    
+async function enableCamera(state, handlers) {
+    if (state.cameraEnabled && state.localStream) return;
     try {
-        state.localStream = await navigator.mediaDevices.getUserMedia({
-            video: videoConstraints(state.selectedDeviceId)
-        });
-        state.cameraEnabled = true;
-        const quality = describeAndTuneStream(state.localStream);
-
-        console.log(`✓ Local camera enabled (${quality})`, state.localStream);
-        
-        // Remove placeholder and add real camera
-        removeCamera('local');
-        addCamera('local', state.localStream, state.username + ' (You)', true);
-        
-        // Show on main feed
-        showOnMainFeed('local');
-        
-        // If we have existing connected peers, we need to recreate connections to add stream
-        const connectedPeers = Array.from(state.peers.entries()).filter(([_, peer]) => peer.connected);
-        if (connectedPeers.length > 0) {
-            console.log('Recreating peer connections to add camera stream');
-            for (const [userId, oldPeer] of connectedPeers) {
-                const camera = state.cameras.get(userId);
-                if (camera) {
-                    // Destroy old peer
-                    oldPeer.destroy();
-                    state.peers.delete(userId);
-                    
-                    // Create new peer with stream as initiator
-                    createPeerConnection(userId, camera.username, true);
-                }
-            }
-            
-            // Notify peers that camera is enabled
-            state.socket.emit('camera-status-changed', {
-                enabled: true,
-                username: state.username
-            });
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(state.selectedDeviceId) });
+        } catch (err) {
+            if (!state.selectedDeviceId || err.name === 'NotAllowedError') throw err;
+            stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(null) });
         }
-        
-        showToast(`Camera enabled (${quality})`, 'success');
+        await useStream(state, stream, handlers);
+        handlers.showToast('Camera on', 'success');
     } catch (err) {
         console.error('Error enabling camera:', err);
         state.cameraEnabled = false;
-        showToast('Failed to enable camera', 'error');
+        handlers.showToast('Could not turn the camera on', 'error');
     }
 }
 
 /**
- * Disable local camera and clean up stream
+ * Turn the local camera off
  * @param {Object} state - Application state object
- * @param {Function} removeCamera - Function to remove camera from UI
- * @param {Function} addCamera - Function to add camera to UI
- * @param {Function} showOnMainFeed - Function to show camera on main feed
- * @param {Function} showToast - Toast notification function
+ * @param {Object} handlers - { setPlayerStream, showToast }
  */
-function disableCamera(state, { removeCamera, addCamera, showOnMainFeed, showToast }) {
-    console.log('[DISABLE] disableCamera() called, state.cameraEnabled:', state.cameraEnabled);
-    if (state.localStream && state.cameraEnabled) {
-        console.log('[DISABLE] Stopping camera tracks...');
-        state.localStream.getTracks().forEach(track => track.stop());
-        state.localStream = null;
-        state.cameraEnabled = false;
-        
-        // Remove camera with stream and add placeholder
-        removeCamera('local');
-        addCamera('local', null, state.username + ' (You)', true);
-        
-        // Update main feed if showing local camera
-        if (state.currentMainCamera === 'local') {
-            showOnMainFeed('local');
-        }
-        
-        // Notify all peers that camera is disabled
-        console.log('[DISABLE] Emitting camera-status-changed event');
-        state.socket.emit('camera-status-changed', {
-            enabled: false,
-            username: state.username
-        });
-        
-        showToast('Camera disabled', 'info');
-    } else {
-        console.log('[DISABLE] Camera not enabled or no stream, skipping');
-    }
-}
+function disableCamera(state, { setPlayerStream, showToast }) {
+    if (!state.localStream || !state.cameraEnabled) return;
 
-/**
- * Stop the setup video stream
- */
-function stopSetupStream() {
-    const setupVideo = document.getElementById('setupVideo');
-    if (setupVideo.srcObject) {
-        setupVideo.srcObject.getTracks().forEach(track => track.stop());
-        setupVideo.srcObject = null;
-    }
+    stopStream(state.localStream);
+    state.localStream = null;
+    state.cameraEnabled = false;
+    setPlayerStream('local', null);
+
+    // Peers show our placeholder; the old connections simply carry no video any more
+    state.socket?.emit('camera-status-changed', { enabled: false });
+    showToast('Camera off', 'info');
 }
 
 // ES6 Module Exports
 export {
-    initializeCameraSetup,
+    openSetup,
+    closeSetup,
+    takePreviewStream,
+    setupCameraDialog,
+    useStream,
     enableCamera,
-    disableCamera,
-    stopSetupStream
+    disableCamera
 };
