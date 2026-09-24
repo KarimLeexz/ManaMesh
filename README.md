@@ -27,7 +27,7 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 
 **Frontend:**
 - Vanilla JavaScript
-- daisyUI 5 + Tailwind CSS 4 (browser build)
+- daisyUI 5 + Tailwind CSS 4 (built with the Tailwind CLI)
 - WebRTC for camera access
 
 ## Setup Instructions
@@ -81,6 +81,21 @@ Or use uvicorn directly:
 ```powershell
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+### Changing the frontend (optional)
+
+The page's stylesheet `frontend/app.css` is built from `frontend/src/app.css` (Tailwind CSS 4 +
+daisyUI 5 + `frontend/styles.css`) and committed, so running the server needs no Node.js.
+After changing HTML, JavaScript or CSS, rebuild it (needs [Node.js](https://nodejs.org) 20+):
+
+```powershell
+npm install        # once
+npm run build      # or: npm run watch  (rebuilds on every save)
+```
+
+Tailwind only generates the classes it finds written out in `frontend/index.html` and
+`frontend/*.js`. A class put together at runtime (like `alert-${type}`) must be listed in
+`frontend/src/app.css` under `@source inline(...)`, otherwise it has no styles.
 
 ### 5. Open in Browser
 
@@ -165,8 +180,8 @@ scans are too often rejected, raise it a little (each +6 or so trades noticeably
 ## Deployment
 
 Not set up yet; the planned target is a Hetzner server. The backend serves the frontend itself,
-so a single process on a single host is all that is needed. The only build artifact to ship is
-`card_index.npz` (a few MB).
+so a single process on a single host is all that is needed. The build artifacts to ship are
+`card_index.npz` (a few MB) and `frontend/app.css`, both committed.
 
 ## Future Enhancements
 
