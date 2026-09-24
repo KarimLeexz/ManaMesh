@@ -19,6 +19,12 @@ scryfall-default-cards*
 card_index.npz.checkpoint.jsonl
 *.db
 
+# Old ORB feature database (dropped, was ~1.6 GB) - never re-add
+card_features.pkl
+card_features_test.pkl
+card_hashes.pkl
+card_hashes_backup_*.pkl
+
 # Environment
 .env
 
