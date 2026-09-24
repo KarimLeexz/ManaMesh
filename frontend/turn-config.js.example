@@ -1,7 +1,0 @@
-// Copy to turn-config.js (gitignored - holds a credential) and fill in your
-// real TURN server. Must match the user/password in turnserver.conf.
-window.MANAMESH_TURN = {
-    urls: 'turn:your-domain.example:3478',
-    username: 'manamesh',
-    credential: 'CHANGE_ME_PASSWORD'
-};

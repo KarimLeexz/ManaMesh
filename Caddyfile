@@ -1,3 +1,10 @@
 manamesh.app {
-    reverse_proxy app:8000
+    # The video server's connection setup (the cameras themselves go to UDP 7882 / TCP 7881)
+    handle_path /livekit/* {
+        reverse_proxy localhost:7880
+    }
+
+    handle {
+        reverse_proxy localhost:8000
+    }
 }

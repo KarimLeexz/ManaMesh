@@ -1,6 +1,6 @@
 """
-WebRTC Signaling and Table State
-Socket.IO event handlers for WebRTC peer-to-peer connections, plus the shared game tables:
+Table State
+Socket.IO event handlers for the shared game tables:
 every player's life total, counters, commander damage, commanders and camera orientation,
 turns, dice rolls, resets and chat.
 
@@ -25,6 +25,13 @@ import time
 import socketio
 from typing import Dict, Any, List, Optional, Tuple
 
+try:
+    from backend.config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+    from backend.services.media_token import media_token
+except ImportError:
+    from config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+    from services.media_token import media_token
+
 
 DEFAULT_STARTING_LIFE = 40
 SEAT_GRACE_SECONDS = 15 * 60     # how long a dropped player's seat is kept
@@ -35,6 +42,8 @@ MAX_TABLE_NAME_LENGTH = 40
 MAX_NAME_LENGTH = 24
 MAX_CHAT_LENGTH = 500
 MAX_COMMANDERS = 2          # a commander plus a partner / background
+MAX_DECK_ENTRIES = 300      # distinct cards in a decklist
+CARD_TYPES = ('Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Other')
 LIFE_LIMIT = 9999
 COUNTER_LIMIT = 999
 POISON_OUT = 10             # poison counters that knock a player out
@@ -98,6 +107,35 @@ def clean_commanders(value: Any) -> List[Dict[str, str]]:
     return commanders
 
 
+def clean_deck(value: Any) -> Optional[Dict[str, Any]]:
+    """
+    A decklist as the clients show it: a name, where it came from, and its cards
+    ({name, qty, type}), the type already worked out by the client (from Scryfall).
+    """
+    if not isinstance(value, dict) or not isinstance(value.get('cards'), list):
+        return None
+    cards = []
+    for card in value['cards'][:MAX_DECK_ENTRIES]:
+        if not isinstance(card, dict):
+            continue
+        name = ' '.join(str(card.get('name') or '').split())[:150]
+        if not name:
+            continue
+        cards.append({
+            'name': name,
+            'qty': max(1, min(99, clean_int(card.get('qty'), 1))),
+            'type': card.get('type') if card.get('type') in CARD_TYPES else 'Other',
+        })
+    if not cards:
+        return None
+    source = str(value.get('source') or '')[:300]
+    return {
+        'name': ' '.join(str(value.get('name') or '').split())[:80],
+        'source': source if source.startswith('https://') else '',
+        'cards': cards,
+    }
+
+
 # ============================== Tables ==============================
 
 class Room:
@@ -132,6 +170,7 @@ class Room:
         # After a server restart, a client brings its last life total and commanders along
         player['hp'] = clean_life(data.get('hp'), self.starting_life)
         player['commanders'] = clean_commanders(data.get('commanders'))
+        player['deck'] = clean_deck(data.get('deck'))
         self.players[pid] = player
         return player
 
@@ -181,6 +220,8 @@ class Room:
             'cmdDamage': {source: list(hits) for source, hits in player['cmd_damage'].items()},
             'conceded': player['conceded'],
             'out': self.is_out(player),
+            # The list itself is fetched on demand ('get-deck'), not sent with every life change
+            'deckSize': sum(card['qty'] for card in player['deck']['cards']) if player.get('deck') else 0,
         }
 
     def lobby_entry(self) -> Dict[str, Any]:
@@ -435,30 +476,23 @@ def register_socket_handlers(sio: socketio.AsyncServer):
             'rejoined': rejoined,
         }, skip_sid=sid)
 
-    @sio.event
-    async def signal(sid, data):
-        """Forward WebRTC signaling messages between peers at the same table."""
+    @sio.on('media-token')
+    async def handle_media_token(sid, data=None):
+        """
+        A ticket to the table's video room (LiveKit), for whoever sits at the table on this
+        connection: players may send their camera, spectators only watch. The answer goes
+        back as the event's acknowledgement.
+        """
         room, player = lookup(sid)
-        if not room or not isinstance(data, dict):
-            return
-        target = room.players.get(str(data.get('to') or ''))
-        if target and target['sid']:
-            await sio.emit('signal', {
-                'from': player['pid'],
-                'signal': data.get('signal')
-            }, to=target['sid'])
-
-    @sio.on('camera-status-changed')
-    async def handle_camera_status_changed(sid, data):
-        """Handle camera enable/disable notifications."""
-        room, player = lookup(sid)
-        if not room or not isinstance(data, dict):
-            return
-        await to_table(room, 'camera-status-changed', {
-            'userId': player['pid'],
-            'enabled': bool(data.get('enabled')),
-            'username': player['username'],
-        }, skip_sid=sid)
+        if not room:
+            return {'error': 'Join a table first.'}
+        if not (LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
+            return {'error': 'The video server is not set up (LIVEKIT_API_KEY / LIVEKIT_API_SECRET).'}
+        return {
+            'url': LIVEKIT_URL or None,   # None: the same domain, at /livekit
+            'token': media_token(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, room.id, player['pid'],
+                                 player['username'], can_publish=player['role'] == 'player'),
+        }
 
     @sio.on('player-update')
     async def handle_player_update(sid, data):
@@ -507,11 +541,22 @@ def register_socket_handlers(sio: socketio.AsyncServer):
             if target['role'] == 'player':
                 if 'commanders' in data:
                     target['commanders'] = clean_commanders(data['commanders'])
+                if 'deck' in data:
+                    target['deck'] = clean_deck(data['deck'])
                 for key in ('flipH', 'flipV'):
                     if key in data:
                         target[key] = bool(data[key])
 
         await to_table(room, 'player-updated', {**room.public(target), 'by': actor['username']})
+
+    @sio.on('get-deck')
+    async def handle_get_deck(sid, data):
+        """A player's decklist, for anyone at the table (answered as the acknowledgement)."""
+        room, _player = lookup(sid)
+        if not room or not isinstance(data, dict):
+            return None
+        target = room.players.get(str(data.get('target') or ''))
+        return target.get('deck') if target else None
 
     @sio.on('take-seat')
     async def handle_take_seat(sid, data=None):
@@ -561,6 +606,7 @@ def register_socket_handlers(sio: socketio.AsyncServer):
                 room.reset_game_state(player)
             if what in ('commanders', 'all'):
                 player['commanders'] = []
+                player['deck'] = None
 
         if what in ('life', 'all'):
             room.markers = {marker: None for marker in MARKERS}

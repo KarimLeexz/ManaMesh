@@ -1,0 +1,17 @@
+# LiveKit video server (see docker-compose.yml). No secrets in here: the API key and secret
+# come from LIVEKIT_KEYS, which docker-compose fills in from .env.
+port: 7880
+bind_addresses:
+  - 127.0.0.1          # only Caddy talks to it (as https://<domain>/livekit)
+
+rtc:
+  tcp_port: 7881       # fallback for networks that block UDP
+  udp_port: 7882       # all camera traffic on one UDP port
+  use_external_ip: true
+
+room:
+  empty_timeout: 300   # an empty video room closes after 5 minutes, like the table
+  departure_timeout: 20
+
+logging:
+  level: info

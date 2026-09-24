@@ -4,13 +4,15 @@
  *
  * This is the main entry point that coordinates all modules:
  * - camera-manager.js: Join / settings dialog, local camera stream
- * - webrtc-manager.js: WebRTC peer connections, signaling and shared table state
+ * - table-socket.js: Socket.IO connection, the shared table state
+ * - media.js: The cameras, through the video server (LiveKit)
  * - table-view.js: Player tiles (camera, life, commanders), layouts, toasts
  * - game-tools.js: Dice, coin, reset, table log, side panel
  * - commander-picker.js: Choosing a commander
  * - recognition-handler.js: Card recognition, scanned cards, card search
  * - chat.js: Table-wide text chat
  * - counters.js: Counters, commander damage, monarch / initiative, out of the game
+ * - decklist.js: Decklists (Archidekt link or text), shown when tapping a player's name
  *
  * Every table has its own link, /t/<code>; tables are created in the lobby (lobby.js, at /).
  */
@@ -26,12 +28,16 @@ import {
     disableCamera
 } from './camera-manager.js';
 
+import { initializeSocketIO } from './table-socket.js';
 import {
-    initializeSocketIO,
-    createPeerConnection,
-    retuneVideo,
-    streamStats
-} from './webrtc-manager.js';
+    initMedia,
+    connectMedia,
+    syncTracks,
+    publishCamera,
+    unpublishCamera,
+    setUploadLevel,
+    mediaStats
+} from './media.js';
 
 import {
     initTableView,
@@ -45,7 +51,16 @@ import {
 } from './table-view.js';
 
 import { initGameTools, showRoll, logEvent, setTurn, giveTurn } from './game-tools.js';
-import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
+import { setupCommanderPicker, openCommanderPicker, toCommander } from './commander-picker.js';
+import {
+    initDecklists,
+    loadDeckEditor,
+    editedDeckText,
+    saveDeck,
+    fetchDeck,
+    toggleDeckPanel,
+    deckChanged
+} from './decklist.js';
 import { initChat, receiveChatMessage } from './chat.js';
 import { initCounters, openCounters, refreshCounters } from './counters.js';
 
@@ -116,7 +131,6 @@ const state = {
     flipV: load('flipV', 'false') === 'true',
     uploadLevel: load('upload', 'normal'),       // share of the upload for our camera: low / normal / high
     players: new Map(),   // 'local' or player id -> player (see table-view.js)
-    peers: new Map(),     // player id -> SimplePeer instance
     cameraEnabled: false,
     hasJoinedRoom: false,
     layout: load('layout', 'grid') === 'focus' ? 'focus' : 'grid',
@@ -144,7 +158,9 @@ const handlers = {
     tableClosed,
     setSpectators,
     roleChanged,
-    createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
+    connectMedia,
+    publishCamera: (stream) => publishCamera(stream),
+    unpublishCamera
 };
 
 /**
@@ -226,7 +242,18 @@ const tileHooks = {
         }
     },
     scanTile: (id, x, y) => scanTile(state, id, x, y, API_URL, showToast),
-    openCommanderPicker: () => openCommanderPicker(state.players.get('local')?.commanders || []),
+    /** The commander dialog, with our decklist in its second tab ('commander' / 'deck') */
+    async openCommanderPicker(tab = 'commander') {
+        const me = state.players.get('local');
+        let deck = null;
+        if (me?.deckSize) {
+            try { deck = await fetchDeck(me); } catch { /* start empty */ }
+        }
+        loadDeckEditor(deck, (me?.commanders || []).map(card => card.name));
+        openCommanderPicker(me?.commanders || [], tab);
+    },
+    openDeck: (id) => toggleDeckPanel(id, tileHooks),
+    deckChanged,
     showCommander(id, index) {
         const player = state.players.get(id);
         const card = player?.commanders[index];
@@ -244,6 +271,7 @@ const tileHooks = {
     logEvent,
     openCounters,
     playerUpdated: (id) => refreshCounters(id),
+    tileCreated: () => syncTracks(),
     setOwnFlip(key, value) {
         state[key] = value;
         save(key, String(value));
@@ -259,6 +287,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadTableInfo();
     initializeTheme();
     initTableView(state, tileHooks);
+    initMedia(state, { setPlayerStream, showToast });
     initGameTools(state, { showToast, upsertPlayer });
     initChat(state);
     initCounters(state, {
@@ -268,7 +297,11 @@ window.addEventListener('DOMContentLoaded', () => {
         setConceded: (id, conceded) => updatePlayer(id, { conceded })
     });
     setupInvite();
-    setupCommanderPicker(commanders => updateMe({ commanders }));
+    initDecklists(state);
+    setupCommanderPicker(async (commanders, deckText) => {
+        updateMe({ commanders });
+        if (deckText !== undefined) await saveDeck(deckText, commanders, updateMe, toCommander);
+    }, editedDeckText);
     setupCameraDialog(state, showToast);
     setupSetupForm();
     setupCardSearch();
@@ -369,7 +402,7 @@ async function submitSetup(withCamera, role = 'player') {
     save('upload', uploadLevel);
     if (uploadLevel !== state.uploadLevel) {
         state.uploadLevel = uploadLevel;
-        retuneVideo(state);
+        setUploadLevel();
     }
     if (stream) save('cameraId', stream.getVideoTracks()[0]?.getSettings().deviceId || '');
 
@@ -396,5 +429,5 @@ async function submitSetup(withCamera, role = 'player') {
     else if (!withCamera) disableCamera(state, handlers);
 }
 
-// Handy in the browser console: `await streamStats()`
-window.streamStats = () => streamStats(state);
+// Handy in the browser console: `streamStats()`
+window.streamStats = () => mediaStats();
