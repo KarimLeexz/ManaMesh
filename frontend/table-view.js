@@ -18,8 +18,24 @@ const ICONS = {
     crownSmall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
     turn: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></svg>',
     crown: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
-    camera: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>'
+    camera: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+    counters: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="M9 12h6M12 9v6"/></svg>',
+    // Badges on the tile
+    poison: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c-.4 0-.7.2-.9.5C9.3 6 6 10.4 6 14a6 6 0 0 0 12 0c0-3.6-3.3-8-5.1-11-.2-.3-.5-.5-.9-.5z"/></svg>',
+    sword: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/></svg>',
+    energy: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+    experience: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.3L12 16.7l-6.2 4.5 2.4-7.3L2 9.4h7.6z"/></svg>',
+    monarch: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
+    initiative: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 21V9l8-6 8 6v12z"/><path d="M9 21v-6h6v6"/></svg>',
+    skull: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7 2 3.5 5.6 3.5 10.2c0 2.6 1.2 4.6 3 5.8V19a1 1 0 0 0 1 1h1v-2h2v2h3v-2h2v2h1a1 1 0 0 0 1-1v-3c1.8-1.2 3-3.2 3-5.8C20.5 5.6 17 2 12 2zM8.5 13a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm7 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>'
 };
+
+// Badges shown on a tile for counters that aren't zero
+const COUNTER_BADGES = [
+    { name: 'poison', icon: 'poison', title: 'Poison' },
+    { name: 'energy', icon: 'energy', title: 'Energy' },
+    { name: 'experience', icon: 'experience', title: 'Experience' }
+];
 
 const GRID_GAP = 8;             // px between tiles, matches gap-2
 const TILE_RATIO = 16 / 9;
@@ -35,7 +51,7 @@ let hooks = null;
  * @param {Object} appHooks - Actions the tiles trigger:
  *   changeLife(id, delta), scanTile(id, clientX, clientY), openCommanderPicker(),
  *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value), giveTurn(id),
- *   logEvent(html)
+ *   logEvent(html), openCounters(id), playerUpdated(id)
  */
 function initTableView(appState, appHooks) {
     state = appState;
@@ -71,6 +87,11 @@ function upsertPlayer(id, data = {}, options = {}) {
             commanders: [],
             flipH: false,          // the player's own setting, seen by everyone
             flipV: false,
+            connected: true,
+            counters: { poison: 0, energy: 0, experience: 0 },
+            cmdDamage: {},         // attacker's player id -> [damage from commander 1, from 2]
+            conceded: false,
+            out: false,
             viewFlipH: false,      // an extra flip only this browser applies
             viewFlipV: false,
             stream: null,
@@ -80,15 +101,23 @@ function upsertPlayer(id, data = {}, options = {}) {
         state.players.set(id, player);
     }
 
-    for (const key of ['username', 'hp', 'commanders', 'flipH', 'flipV']) {
+    const wasOut = player.out;
+    const before = { counters: { ...player.counters }, cmdDamage: player.cmdDamage };
+    for (const key of ['username', 'hp', 'commanders', 'flipH', 'flipV', 'connected', 'counters', 'cmdDamage', 'conceded', 'out']) {
         if (data[key] !== undefined) player[key] = data[key];
     }
 
     if (isNew) {
         createTile(player);
         renderLayout();
+    } else if (player.out !== wasOut && !options.quiet) {
+        hooks.logEvent(player.out
+            ? `${ICONS.skull.replace('<svg', '<svg class="inline h-4 w-4 align-[-3px]"')} <b>${escapeHtml(player.username)}</b> is out`
+            : `<b>${escapeHtml(player.username)}</b> is back in the game`);
     }
+    if (!isNew && !options.quiet) noteCounterChanges(player, before);
     updateTile(player, options);
+    hooks.playerUpdated?.(id);
     return player;
 }
 
@@ -149,8 +178,12 @@ function createTile(player) {
             <div class="tile-placeholder">${ICONS.cameraOff}<span>No camera</span></div>
             <canvas class="tile-canvas"></canvas>
         </div>
+        <div class="tile-status"></div>
         <div class="tile-top">
-            <div class="tile-name"></div>
+            <div class="tile-title">
+                <div class="tile-name"></div>
+                <div class="tile-markers"></div>
+            </div>
             <div class="tile-tools">
                 <button class="tile-icon-btn focus-btn" title="Show big">${ICONS.expand}</button>
                 <button class="tile-icon-btn menu-btn" title="Options">${ICONS.dots}</button>
@@ -159,6 +192,10 @@ function createTile(player) {
         <div class="turn-badge"><span class="turn-dot"></span><span class="turn-text"></span></div>
         <div class="tile-bottom">
             <div class="commanders"></div>
+            <div class="tile-counters">
+                <div class="counter-badges"></div>
+                <button class="tile-icon-btn counters-btn" title="Counters &amp; commander damage">${ICONS.counters}</button>
+            </div>
             <div class="life">
                 <button class="life-btn" data-life="-1" aria-label="Lose 1 life">−</button>
                 <span class="life-value"></span>
@@ -210,6 +247,8 @@ function createTile(player) {
     });
 
     tile.querySelectorAll('.life-btn').forEach(btn => setupLifeButton(btn, player.id));
+    tile.querySelector('.tile-counters').addEventListener('click', () => hooks.openCounters(player.id));
+    tile.querySelector('.tile-markers').addEventListener('click', () => hooks.openCounters(player.id));
 }
 
 /**
@@ -287,6 +326,42 @@ function updateTile(player, { quiet = false } = {}) {
     const art = player.commanders[0]?.art_url;
     player.placeholder.style.backgroundImage = art ? `url("${art}")` : '';
     player.placeholder.querySelector('span').textContent = player.isLocal ? 'Your camera is off' : 'No camera';
+
+    // Counters that aren't zero, the highest commander damage from any one commander
+    const badges = COUNTER_BADGES
+        .filter(({ name }) => player.counters[name] > 0)
+        .map(({ name, icon, title }) => {
+            const danger = name === 'poison' && player.counters.poison >= 10;
+            return `<span class="counter-badge ${name} ${danger ? 'danger' : ''}" title="${title}">${ICONS[icon]}${player.counters[name]}</span>`;
+        });
+    const maxCommanderDamage = Math.max(0, ...Object.values(player.cmdDamage).flat());
+    if (maxCommanderDamage > 0) {
+        badges.unshift(`<span class="counter-badge commander ${maxCommanderDamage >= 21 ? 'danger' : ''}" title="Most commander damage from one commander">${ICONS.sword}${maxCommanderDamage}</span>`);
+    }
+    tile.querySelector('.counter-badges').innerHTML = badges.join('');
+
+    // Monarch / initiative
+    const markers = [];
+    if (state.markers?.monarch === serverId(player.id)) markers.push(`<span class="marker-badge monarch" title="The monarch">${ICONS.monarch}</span>`);
+    if (state.markers?.initiative === serverId(player.id)) markers.push(`<span class="marker-badge initiative" title="Has the initiative">${ICONS.initiative}</span>`);
+    tile.querySelector('.tile-markers').innerHTML = markers.join('');
+
+    // Out of the game / dropped out
+    tile.classList.toggle('is-out', !!player.out);
+    tile.classList.toggle('is-offline', !player.connected);
+    tile.querySelector('.tile-status').innerHTML = !player.connected
+        ? `<span class="loading loading-dots loading-sm"></span> Reconnecting…`
+        : player.out ? `${ICONS.skull} Out` : '';
+}
+
+/** The id the server knows a player by ('local' is us) */
+function serverId(id) {
+    return id === 'local' ? state.playerId : id;
+}
+
+/** The table's id for a server player id ('local' for us) */
+function localKey(pid) {
+    return pid && pid === state.playerId ? 'local' : pid;
 }
 
 function showLifeDelta(player, change) {
@@ -307,6 +382,38 @@ function showLifeDelta(player, change) {
         const net = player.delta;
         player.delta = 0;
         hooks.logEvent(`<b>${escapeHtml(player.username)}</b> ${net > 0 ? 'gained' : 'lost'} <b>${Math.abs(net)}</b> life (→ ${player.hp})`);
+    }, DELTA_MS);
+}
+
+/**
+ * Log counter and commander damage changes, summed up once the tapping stops
+ * ("Lena: poison +2 (→ 3)") instead of a line per tap
+ */
+function noteCounterChanges(player, before) {
+    const pending = player.pendingCounters ??= {};
+    for (const [name, value] of Object.entries(player.counters)) {
+        const change = value - (before.counters[name] || 0);
+        if (change) pending[name] = (pending[name] || 0) + change;
+    }
+    const sources = new Set([...Object.keys(before.cmdDamage || {}), ...Object.keys(player.cmdDamage)]);
+    for (const source of sources) {
+        const total = (hits) => (hits || []).reduce((sum, n) => sum + n, 0);
+        const change = total(player.cmdDamage[source]) - total(before.cmdDamage?.[source]);
+        if (change) pending[`cmd:${source}`] = (pending[`cmd:${source}`] || 0) + change;
+    }
+    if (!Object.keys(pending).length) return;
+
+    clearTimeout(player.counterTimer);
+    player.counterTimer = setTimeout(() => {
+        const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+        const parts = Object.entries(pending).filter(([, n]) => n).map(([key, n]) => {
+            if (!key.startsWith('cmd:')) return `${key} ${signed(n)} (→ ${player.counters[key]})`;
+            const source = state.players.get(localKey(key.slice(4)));
+            const from = source ? (source.isLocal ? 'your' : `${escapeHtml(source.username)}'s`) : 'a';
+            return `commander damage ${signed(n)} from ${from} commander`;
+        });
+        player.pendingCounters = {};
+        if (parts.length) hooks.logEvent(`<b>${escapeHtml(player.username)}</b>: ${parts.join(', ')}`);
     }, DELTA_MS);
 }
 
@@ -331,7 +438,7 @@ function seatingOrder() {
     const players = [...state.players.values()];
     const order = state.turn?.order || [];
     if (!order.length) return players;
-    const seat = new Map(order.map((sid, i) => [sid === state.socket?.id ? 'local' : sid, i]));
+    const seat = new Map(order.map((pid, i) => [localKey(pid), i]));
     return players.sort((a, b) => (seat.get(a.id) ?? order.length) - (seat.get(b.id) ?? order.length));
 }
 
@@ -467,9 +574,10 @@ function openTileMenu(id, anchor) {
     if (!(state.layout === 'focus' && state.focusId === id)) {
         items.push(`<li><a data-action="focus">${ICONS.focus} Show big</a></li>`);
     }
-    if (state.turn?.order.length && state.turnId !== id) {
+    if (state.role === 'player' && state.turn?.order.length && state.turnId !== id) {
         items.push(`<li><a data-action="turn">${ICONS.turn} ${player.isLocal ? 'Make it my turn' : `Give ${escapeHtml(player.username)} the turn`}</a></li>`);
     }
+    items.push(`<li><a data-action="counters">${ICONS.counters} Counters &amp; commander damage…</a></li>`);
     if (player.isLocal) {
         items.push(`<div class="divider my-0"></div>`);
         items.push(`<li><a data-action="commander">${ICONS.crown} ${player.commanders.length ? 'Change commander' : 'Choose commander'}</a></li>`);
@@ -504,6 +612,7 @@ function openTileMenu(id, anchor) {
             case 'setup': hooks.openSetup(); break;
             case 'camera': hooks.toggleCamera(); break;
             case 'turn': hooks.giveTurn(id); break;
+            case 'counters': hooks.openCounters(id); break;
         }
     };
 }
@@ -551,6 +660,10 @@ export {
     effectiveFlip,
     updateTile,
     updateTurnMarkers,
+    seatingOrder,
+    serverId,
+    localKey,
+    ICONS,
     setLayout,
     setFocus,
     renderLayout,

@@ -107,8 +107,15 @@
 .tile-top { top: 0; align-items: flex-start; }
 .tile-bottom { bottom: 0; align-items: flex-end; }
 
+.tile-title {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    max-width: 65%;
+}
 .tile-name {
-    max-width: 60%;
+    min-width: 0;
     padding: 0.15em 0.65em;
     border-radius: 9999px;
     background: rgb(0 0 0 / 0.6);
@@ -320,12 +327,94 @@
     .tile.has-turn .turn-badge { display: none; }
 }
 
+/* ------------------------------ Counters & markers ------------------------------ */
+
+.tile-counters {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+    cursor: pointer;
+}
+.counter-badges { display: flex; gap: 0.25rem; }
+.counter-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.2em;
+    padding: 0.15em 0.5em 0.15em 0.4em;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.6);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    color: #fff;
+    font-size: clamp(0.65rem, 3cqmin, 0.85rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px);
+}
+.counter-badge svg { width: 1.05em; height: 1.05em; }
+.counter-badge.poison svg { color: #7ddf64; }
+.counter-badge.commander svg { color: var(--color-warning); }
+.counter-badge.energy svg { color: #fde047; }
+.counter-badge.experience svg { color: #93c5fd; }
+.counter-badge.danger { background: var(--color-error); color: var(--color-error-content); }
+.counter-badge.danger svg { color: inherit; }
+
+.tile-markers { display: flex; gap: 0.25rem; }
+.marker-badge {
+    display: grid;
+    place-items: center;
+    width: clamp(1.3rem, 7cqmin, 1.9rem);
+    height: clamp(1.3rem, 7cqmin, 1.9rem);
+    border-radius: 9999px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+.marker-badge svg { width: 60%; height: 60%; }
+.marker-badge.monarch { background: #facc15; color: #422006; }
+.marker-badge.initiative { background: #a78bfa; color: #1e1b4b; }
+
+/* ------------------------------ Out / reconnecting ------------------------------ */
+
+.tile-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    display: none;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.4em 1em;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.7);
+    color: #fff;
+    font-size: clamp(0.75rem, 4cqmin, 1.1rem);
+    font-weight: 700;
+    pointer-events: none;
+    z-index: 2;
+}
+.tile-status svg { width: 1.2em; height: 1.2em; }
+.tile.is-out .tile-status, .tile.is-offline .tile-status { display: flex; }
+.tile.is-out .tile-video, .tile.is-offline .tile-video { filter: grayscale(1) brightness(0.55); }
+.tile.is-out .tile-placeholder, .tile.is-offline .tile-placeholder { filter: grayscale(1); }
+.tile.is-out .tile-status { color: var(--color-error); }
+
 /* Tiny tiles: only the number, no buttons */
 @container (max-height: 120px) {
     .life-btn { display: none; }
     .life { padding: 0.15rem 0.55rem; }
     .commander-add { display: none; }
+    .counters-btn { display: none; }
 }
+
+/* ------------------------------ Spectators ------------------------------ */
+
+/* Watching only: nothing that would change the game */
+body.is-spectator .player-only,
+body.is-spectator .life-btn,
+body.is-spectator .counters-btn,
+body.is-spectator .commander-add { display: none !important; }
+body:not(.is-spectator) .spectator-only { display: none !important; }
+body.is-spectator .life { padding: 0.25rem 0.75rem; }
 /* ============================== Dice & coin ============================== */
 
 .roll-card {

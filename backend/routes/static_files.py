@@ -21,6 +21,7 @@ ASSETS = {
     "game-tools.js": "application/javascript",
     "commander-picker.js": "application/javascript",
     "chat.js": "application/javascript",
+    "counters.js": "application/javascript",
     "recognition-handler.js": "application/javascript",
     "turn-config.js": "application/javascript",
     "app.css": "text/css",
@@ -48,6 +49,15 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
+
+
+@router.get("/t/{table_id}")
+async def table_page(table_id: str):
+    """A table's link: the same page, which reads the table from the URL."""
+    index_path = FRONTEND_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse(index_path)
 
 
 def asset_route(filename: str, media_type: str):

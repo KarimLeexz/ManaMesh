@@ -64,6 +64,7 @@ function randomRoll(sides) {
 }
 
 function roll(kind) {
+    if (state.role !== 'player') return;
     const now = Date.now();
     if (now - lastRoll < ROLL_COOLDOWN_MS) return;
     lastRoll = now;
@@ -213,7 +214,7 @@ function setupTurns() {
  * @param {string} action - 'next' (starts turns if needed), 'prev' or 'start'
  */
 function moveTurn(action) {
-    if (!state.socket?.connected) return;
+    if (!state.socket?.connected || state.role !== 'player') return;
     if (action === 'prev' && !state.turn?.order.length) return;
     const now = Date.now();
     if (now - lastPass < PASS_COOLDOWN_MS) return;
@@ -224,21 +225,21 @@ function moveTurn(action) {
 /** Give the turn straight to a player (tile menu) */
 function giveTurn(id) {
     if (!state.socket?.connected) return;
-    state.socket.emit('turn', { action: 'set', target: id === 'local' ? state.socket.id : id });
+    state.socket.emit('turn', { action: 'set', target: id === 'local' ? state.playerId : id });
 }
 
-function turnKey(sid) {
-    return sid && sid === state.socket?.id ? 'local' : sid;
+function turnKey(pid) {
+    return pid && pid === state.playerId ? 'local' : pid;
 }
 
-function nameOf(sid) {
-    const player = state.players.get(turnKey(sid));
+function nameOf(pid) {
+    const player = state.players.get(turnKey(pid));
     return player ? (player.isLocal ? 'You' : player.username) : '?';
 }
 
 /**
  * The server says whose turn it is now
- * @param {Object} turn - { order: [socket ids], current, number }
+ * @param {Object} turn - { order: [player ids], current, number }
  * @param {Object} info - { action, by } of the change; nothing for a quiet sync
  */
 function setTurn(turn, info = {}) {
