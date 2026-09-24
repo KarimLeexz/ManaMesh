@@ -135,18 +135,12 @@ function initializeSocketIO(API_URL, state, handlers) {
         setPlayerStream(userId, null);
     });
 
-    // Someone's life, commanders, name or orientation changed (possibly our own)
+    // Someone's life, commanders, name or orientation changed (possibly our own).
+    // upsertPlayer -> updateTile logs life and commander changes itself.
     state.socket.on('player-updated', (player) => {
         const id = keyOf(player.userId, state);
-        const before = state.players.get(id);
-        if (!before) return;
-        const oldCommanders = before.commanders.map(c => c.name).join(' & ');
+        if (!state.players.get(id)) return;
         upsertPlayer(id, player);
-
-        const newCommanders = player.commanders.map(c => c.name).join(' & ');
-        if (newCommanders && newCommanders !== oldCommanders) {
-            logEvent(`<b>${escape(player.username)}</b> plays <b>${escape(newCommanders)}</b>`);
-        }
     });
 
     state.socket.on('table-reset', ({ what, by, startingLife, players, turn }) => {

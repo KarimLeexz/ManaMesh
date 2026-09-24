@@ -133,6 +133,7 @@ const tileHooks = {
         else enableCamera(state, handlers);
     },
     giveTurn,
+    logEvent,
     setOwnFlip(key, value) {
         state[key] = value;
         save(key, String(value));

@@ -34,7 +34,8 @@ let hooks = null;
  * @param {Object} appState - Application state
  * @param {Object} appHooks - Actions the tiles trigger:
  *   changeLife(id, delta), scanTile(id, clientX, clientY), openCommanderPicker(),
- *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value), giveTurn(id)
+ *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value), giveTurn(id),
+ *   logEvent(html)
  */
 function initTableView(appState, appHooks) {
     state = appState;
@@ -180,6 +181,7 @@ function createTile(player) {
     player.placeholder = tile.querySelector('.tile-placeholder');
     player.shownHp = null;
     player.delta = 0;
+    player.shownCommanders = null;
 
     // Tap on the tile: a small tile becomes the big one; on a big one, scan the card there
     tile.addEventListener('click', (e) => {
@@ -261,6 +263,11 @@ function updateTile(player, { quiet = false } = {}) {
 
     // Commanders
     const box = tile.querySelector('.commanders');
+    const newCommanders = player.commanders.map(c => c.name).join(' & ');
+    if (player.shownCommanders !== null && newCommanders && newCommanders !== player.shownCommanders && !quiet) {
+        hooks.logEvent(`<b>${escapeHtml(player.username)}</b> plays <b>${escapeHtml(newCommanders)}</b>`);
+    }
+    player.shownCommanders = newCommanders;
     if (player.commanders.length) {
         // Small tiles show the art (name as tooltip), big tiles just the name
         box.innerHTML = player.commanders.map((card, i) => `
@@ -297,7 +304,9 @@ function showLifeDelta(player, change) {
     bubble.classList.add('show');
     player.deltaTimer = setTimeout(() => {
         bubble.classList.remove('show');
+        const net = player.delta;
         player.delta = 0;
+        hooks.logEvent(`<b>${escapeHtml(player.username)}</b> ${net > 0 ? 'gained' : 'lost'} <b>${Math.abs(net)}</b> life (→ ${player.hp})`);
     }, DELTA_MS);
 }
 
