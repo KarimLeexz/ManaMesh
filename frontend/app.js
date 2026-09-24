@@ -9,6 +9,7 @@
  * - game-tools.js: Dice, coin, reset, table log, side panel
  * - commander-picker.js: Choosing a commander
  * - recognition-handler.js: Card recognition, scanned cards, card search
+ * - chat.js: Table-wide text chat
  */
 
 // ES6 Module Imports
@@ -39,6 +40,7 @@ import {
 
 import { initGameTools, showRoll, logEvent, setTurn, giveTurn } from './game-tools.js';
 import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
+import { initChat, receiveChatMessage } from './chat.js';
 
 import {
     scanTile,
@@ -90,6 +92,7 @@ const handlers = {
     upsertPlayer,
     setPlayerStream,
     removePlayer,
+    receiveChatMessage,
     createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
 };
 
@@ -148,6 +151,7 @@ window.addEventListener('DOMContentLoaded', () => {
     initializeTheme();
     initTableView(state, tileHooks);
     initGameTools(state, { showToast, upsertPlayer });
+    initChat(state);
     setupCommanderPicker(commanders => updateMe({ commanders }));
     setupCameraDialog(state, showToast);
     setupSetupForm();

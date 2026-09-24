@@ -1,7 +1,7 @@
 """
 WebRTC Signaling and Table State
 Socket.IO event handlers for WebRTC peer-to-peer connections, plus the shared game table:
-every player's life total, commanders and camera orientation, dice rolls and resets.
+every player's life total, commanders and camera orientation, dice rolls, resets and chat.
 
 The server holds the table state and is the single source of truth: clients send changes
 (e.g. "life -1") and everyone, the sender included, gets the resulting state back. That way
@@ -25,6 +25,7 @@ turn: Dict[str, Any] = {'order': [], 'current': None, 'number': 0}
 TURN_ACTIONS = {'start', 'next', 'prev', 'set'}
 
 MAX_NAME_LENGTH = 24
+MAX_CHAT_LENGTH = 500
 MAX_COMMANDERS = 2          # a commander plus a partner / background
 LIFE_LIMIT = 9999
 ROLL_KINDS = {'d4': 4, 'd6': 6, 'd8': 8, 'd10': 10, 'd12': 12, 'd20': 20, 'coin': 2}
@@ -311,6 +312,21 @@ def register_socket_handlers(sio: socketio.AsyncServer):
             'username': connected_users[sid]['username'],
             'kind': kind,
             'result': result,
+        }, skip_sid=sid)
+
+    @sio.on('chat-message')
+    async def handle_chat_message(sid, data):
+        """Send a chat message to everyone else at the table. Not stored server-side."""
+        if sid not in connected_users or not isinstance(data, dict):
+            return
+        message = str(data.get('message') or '').strip()[:MAX_CHAT_LENGTH]
+        if not message:
+            return
+
+        await sio.emit('chat-message', {
+            'userId': sid,
+            'username': connected_users[sid]['username'],
+            'message': message,
         }, skip_sid=sid)
 
 

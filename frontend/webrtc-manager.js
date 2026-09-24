@@ -16,10 +16,10 @@ function keyOf(userId, state) {
  * @param {string} API_URL - Server API URL
  * @param {Object} state - Application state object
  * @param {Object} handlers - { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection,
- *                              showToast, logEvent, showRoll }
+ *                              showToast, logEvent, showRoll, receiveChatMessage }
  */
 function initializeSocketIO(API_URL, state, handlers) {
-    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll, setTurn } = handlers;
+    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll, setTurn, receiveChatMessage } = handlers;
     console.log('Connecting to Socket.IO server...');
 
     state.socket = io(API_URL, {
@@ -158,6 +158,10 @@ function initializeSocketIO(API_URL, state, handlers) {
 
     state.socket.on('rolled', ({ userId, username, kind, result }) => {
         showRoll({ userId, username, kind, result });
+    });
+
+    state.socket.on('chat-message', ({ userId, username, message }) => {
+        receiveChatMessage({ userId, username, message });
     });
 }
 

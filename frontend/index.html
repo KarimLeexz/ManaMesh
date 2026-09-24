@@ -118,6 +118,7 @@
             <div role="tablist" class="tabs tabs-box tabs-sm shrink-0">
                 <button role="tab" class="tab tab-active flex-1" data-tab="cards">Cards</button>
                 <button role="tab" class="tab flex-1" data-tab="log">Log <span id="logBadge" class="badge badge-xs badge-primary ml-1 hidden"></span></button>
+                <button role="tab" class="tab flex-1" data-tab="chat">Chat <span id="chatBadge" class="badge badge-xs badge-primary ml-1 hidden"></span></button>
             </div>
 
             <div data-panel="cards" class="flex-1 min-h-0 flex flex-col gap-2">
@@ -140,6 +141,18 @@
             <div data-panel="log" class="flex-1 min-h-0 overflow-y-auto" hidden>
                 <ul id="tableLog" class="flex flex-col gap-1 text-sm"></ul>
                 <p id="logEmpty" class="py-10 text-center text-sm text-base-content/50">Rolls, flips and resets show up here</p>
+            </div>
+
+            <div data-panel="chat" class="flex-1 min-h-0 flex flex-col gap-2" hidden>
+                <div id="chatMessages" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 text-sm">
+                    <p id="chatEmpty" class="py-10 text-center text-sm text-base-content/50">Say hello to the table</p>
+                </div>
+                <form id="chatForm" class="join w-full shrink-0">
+                    <input type="text" id="chatInput" class="input input-sm join-item flex-1" maxlength="500" placeholder="Message…" autocomplete="off" />
+                    <button type="submit" class="btn btn-sm btn-primary join-item" aria-label="Send">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    </button>
+                </form>
             </div>
 
             <p class="shrink-0 text-[10px] leading-tight text-base-content/40 px-1">
