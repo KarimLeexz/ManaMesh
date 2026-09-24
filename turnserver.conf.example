@@ -16,10 +16,10 @@ lt-cred-mech
 user=manamesh:CHANGE_ME_PASSWORD
 realm=your-domain.example
 
-# Don't let the relay be used to reach other machines on the server's private network
+# No Hetzner private network is in use here, so there's no internal LAN to protect
+# with denied-peer-ip - and blocking those ranges also blocks legitimate ICE candidate
+# pairs to clients on carrier CGNAT (10.x) or home Wi-Fi (192.168.x), which was denying
+# real player connections. If a private network is added later, revisit this.
 no-multicast-peerelay
-denied-peer-ip=10.0.0.0-10.255.255.255
-denied-peer-ip=172.16.0.0-172.31.255.255
-denied-peer-ip=192.168.0.0-192.168.255.255
 
 no-cli
