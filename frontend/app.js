@@ -153,8 +153,8 @@ window.addEventListener('DOMContentLoaded', () => {
     setupCardSearch();
     setLayout(state.layout);
 
-    document.querySelectorAll('input[name="layout"]').forEach(input => {
-        input.addEventListener('change', () => setLayout(input.value));
+    document.querySelectorAll('button[data-layout]').forEach(button => {
+        button.addEventListener('click', () => setLayout(button.dataset.layout));
     });
     document.getElementById('settingsButton').addEventListener('click', () => openSetup(state, showToast));
 

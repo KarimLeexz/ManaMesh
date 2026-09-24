@@ -321,7 +321,11 @@ function updateTurnMarkers() {
 function setLayout(layout) {
     state.layout = layout;
     try { localStorage.setItem('layout', layout); } catch { /* private mode */ }
-    document.querySelectorAll('input[name="layout"]').forEach(input => { input.checked = input.value === layout; });
+    document.querySelectorAll('button[data-layout]').forEach(button => {
+        const on = button.dataset.layout === layout;
+        button.classList.toggle('btn-active', on);
+        button.setAttribute('aria-pressed', String(on));
+    });
     renderLayout();
 }
 

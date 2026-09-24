@@ -106,7 +106,7 @@ Navigate to: **http://localhost:8000**
 
 1. **Join** - Enter your name, pick your camera and mirror / flip it until your cards read the right way round
    (the preview shows exactly what the others see). Allow camera access when the browser asks
-2. **Layout** - *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
+2. **Layout** - The two buttons at the right of the top bar: *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
 3. **Life** - Tap − / + on any player's tile (hold to count faster). Everyone can change everyone's life,
    so whoever deals the damage can count it
 4. **Commander** - Tap *Commander* on your tile to search for it (partner / background: up to two)
