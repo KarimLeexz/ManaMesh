@@ -34,10 +34,12 @@ const ROLL_SHOWN_MS = 4200;   // how long a result stays over the cameras
 const MAX_ROLL_CARDS = 4;
 const MAX_LOG = 100;
 const PASS_COOLDOWN_MS = 400;   // a double tap of Space shouldn't skip a player
+const ROLL_COOLDOWN_MS = 900;   // ignore a new roll until the previous one has landed
 
 let state = null;
 let deps = null;
 let unreadLog = 0;
+let lastRoll = 0;
 
 /**
  * @param {Object} appState - Application state
@@ -62,6 +64,10 @@ function randomRoll(sides) {
 }
 
 function roll(kind) {
+    const now = Date.now();
+    if (now - lastRoll < ROLL_COOLDOWN_MS) return;
+    lastRoll = now;
+
     const sides = kind === 'coin' ? 2 : DICE[kind].sides;
     const result = randomRoll(sides);
     state.socket?.emit('roll', { kind, result });
