@@ -37,7 +37,7 @@ import {
     showToast
 } from './table-view.js';
 
-import { initGameTools, showRoll, logEvent } from './game-tools.js';
+import { initGameTools, showRoll, logEvent, setTurn, giveTurn } from './game-tools.js';
 import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
 
 import {
@@ -72,6 +72,8 @@ const state = {
     hasJoinedRoom: false,
     layout: load('layout', 'grid') === 'focus' ? 'focus' : 'grid',
     focusId: null,
+    turn: null,           // { order, current, number } from the server
+    turnId: null,         // player id ('local' or socket id) whose turn it is
     startingLife: 40,
     isScanning: false
 };
@@ -84,6 +86,7 @@ const handlers = {
     showToast,
     logEvent,
     showRoll,
+    setTurn,
     upsertPlayer,
     setPlayerStream,
     removePlayer,
@@ -129,6 +132,7 @@ const tileHooks = {
         if (state.cameraEnabled) disableCamera(state, handlers);
         else enableCamera(state, handlers);
     },
+    giveTurn,
     setOwnFlip(key, value) {
         state[key] = value;
         save(key, String(value));

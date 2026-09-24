@@ -140,57 +140,69 @@
 
 /* ------------------------------ Commanders ------------------------------ */
 
-.commanders { display: flex; align-items: flex-end; gap: 0.35rem; min-width: 0; }
+.commanders { display: flex; align-items: flex-end; gap: 0.3rem; min-width: 0; }
 
+/* Small tiles: the art as a round avatar, the name in a tooltip */
 .commander-chip {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.2rem;
-    padding-right: 0.2rem;
-    border-radius: 9999px;
-    background: rgb(0 0 0 / 0.6);
-    color: #fff;
-    backdrop-filter: blur(4px);
     min-width: 0;
+    border-radius: 9999px;
+    color: #fff;
     cursor: pointer;
 }
 .commander-chip img {
-    width: clamp(1.6rem, 15cqmin, 4rem);
-    height: clamp(1.6rem, 15cqmin, 4rem);
+    width: clamp(1.4rem, 12cqmin, 2.4rem);
+    height: clamp(1.4rem, 12cqmin, 2.4rem);
     border-radius: 9999px;
     object-fit: cover;
     flex-shrink: 0;
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-warning) 80%, transparent);
+    box-shadow: 0 0 0 2px rgb(0 0 0 / 0.55), 0 0 0 3.5px color-mix(in oklab, var(--color-warning) 85%, transparent);
 }
-.commander-chip .commander-name {
-    display: none;
-    font-size: clamp(0.65rem, 3.8cqmin, 0.95rem);
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 11rem;
-    padding-right: 0.5rem;
-}
-@container (min-width: 520px) {
-    .commander-chip .commander-name { display: block; }
+.commander-chip .commander-name { display: none; }
+
+/* Big tiles: just the name */
+@container (min-width: 420px) {
+    .commander-chip {
+        padding: 0.3em 0.75em 0.3em 0.6em;
+        background: rgb(0 0 0 / 0.55);
+        backdrop-filter: blur(6px);
+        border: 1px solid rgb(255 255 255 / 0.12);
+    }
+    .commander-chip:hover { background: rgb(0 0 0 / 0.7); }
+    .commander-chip img { display: none; }
+    .commander-chip .commander-name {
+        display: flex;
+        align-items: center;
+        gap: 0.35em;
+        font-size: clamp(0.7rem, 2.6cqmin, 0.9rem);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 14rem;
+    }
+    .commander-chip .commander-name svg { width: 1.05em; height: 1.05em; flex-shrink: 0; color: var(--color-warning); }
+    /* The name is right there, no tooltip needed */
+    .commander-chip.tooltip::before, .commander-chip.tooltip::after { display: none; }
 }
 
 .commander-add {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.35em 0.8em;
+    gap: 0.3rem;
+    padding: 0.3em 0.7em;
     border-radius: 9999px;
-    border: 1.5px dashed rgb(255 255 255 / 0.6);
-    background: rgb(0 0 0 / 0.45);
-    color: #fff;
-    font-size: clamp(0.6rem, 4cqmin, 0.9rem);
+    border: 1px dashed rgb(255 255 255 / 0.45);
+    background: rgb(0 0 0 / 0.4);
+    color: rgb(255 255 255 / 0.85);
+    font-size: clamp(0.6rem, 2.6cqmin, 0.8rem);
     font-weight: 600;
     white-space: nowrap;
+    backdrop-filter: blur(6px);
 }
-.commander-add:hover { background: rgb(0 0 0 / 0.7); }
+.commander-add svg { width: 1.1em; height: 1.1em; }
+.commander-add:hover { background: rgb(0 0 0 / 0.65); color: #fff; }
 
 /* ------------------------------ Life counter ------------------------------ */
 
@@ -198,33 +210,37 @@
     position: relative;
     display: flex;
     align-items: center;
+    gap: 0.1rem;
+    padding: 0.15rem;
     border-radius: 9999px;
-    background: rgb(0 0 0 / 0.65);
+    background: rgb(0 0 0 / 0.55);
+    border: 1px solid rgb(255 255 255 / 0.12);
     color: #fff;
     backdrop-filter: blur(6px);
-    box-shadow: 0 2px 10px rgb(0 0 0 / 0.35);
     flex-shrink: 0;
 }
 .life-btn {
     display: grid;
     place-items: center;
-    width: clamp(1.8rem, 14cqmin, 4.25rem);
-    height: clamp(1.8rem, 14cqmin, 4.25rem);
+    width: clamp(1.5rem, 8.5cqmin, 2.4rem);
+    height: clamp(1.5rem, 8.5cqmin, 2.4rem);
     border-radius: 9999px;
-    font-size: clamp(1rem, 8cqmin, 2.25rem);
-    font-weight: 700;
+    font-size: clamp(0.9rem, 5cqmin, 1.35rem);
+    font-weight: 600;
     line-height: 1;
+    color: rgb(255 255 255 / 0.75);
     touch-action: manipulation;
-    transition: background 0.1s;
+    transition: background 0.1s, color 0.1s;
 }
-.life-btn:hover { background: rgb(255 255 255 / 0.12); }
+.life-btn:hover { background: rgb(255 255 255 / 0.12); color: #fff; }
 .life-btn:active { background: rgb(255 255 255 / 0.25); }
 .life-value {
     min-width: 2ch;
     text-align: center;
-    font-size: clamp(1.1rem, 11cqmin, 3.25rem);
-    font-weight: 800;
+    font-size: clamp(0.95rem, 6.5cqmin, 1.9rem);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
     line-height: 1;
 }
 .life.is-low .life-value { color: var(--color-warning); }
@@ -235,13 +251,12 @@
     position: absolute;
     bottom: 100%;
     left: 50%;
-    translate: -50% -0.35rem;
-    padding: 0.1em 0.55em;
+    translate: -50% -0.3rem;
+    padding: 0.05em 0.5em;
     border-radius: 9999px;
-    font-size: clamp(0.75rem, 6cqmin, 1.5rem);
-    font-weight: 800;
+    font-size: clamp(0.7rem, 4cqmin, 1rem);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: #fff;
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
@@ -252,16 +267,65 @@
 
 .life-bump { animation: life-bump 0.25s ease; }
 @keyframes life-bump {
-    40% { transform: scale(1.25); }
+    40% { transform: scale(1.2); }
+}
+
+/* ------------------------------ Whose turn ------------------------------ */
+
+.tile.has-turn {
+    outline: 3px solid var(--color-primary);
+    outline-offset: -3px;
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 24px -2px color-mix(in oklab, var(--color-primary) 70%, transparent);
+}
+.tile.has-turn .tile-name {
+    background: var(--color-primary);
+    color: var(--color-primary-content);
+}
+
+.turn-badge {
+    position: absolute;
+    left: 50%;
+    bottom: clamp(0.25rem, 2.5cqmin, 0.75rem);
+    translate: -50% 0;
+    display: none;
+    align-items: center;
+    gap: 0.45em;
+    padding: 0.35em 0.9em;
+    border-radius: 9999px;
+    background: var(--color-primary);
+    color: var(--color-primary-content);
+    font-size: clamp(0.7rem, 2.8cqmin, 0.95rem);
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
+    pointer-events: none;
+}
+.tile.has-turn .turn-badge { display: flex; animation: turn-in 0.35s cubic-bezier(.2,.8,.3,1.3); }
+.turn-dot {
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: turn-pulse 1.6s ease-in-out infinite;
+}
+@keyframes turn-in {
+    from { opacity: 0; translate: -50% 0.6rem; }
+}
+@keyframes turn-pulse {
+    50% { opacity: 0.35; }
+}
+
+/* Small tiles: the glow and the coloured name say it, no room for the badge */
+@container (max-width: 419px) {
+    .tile.has-turn .turn-badge { display: none; }
 }
 
 /* Tiny tiles: only the number, no buttons */
 @container (max-height: 120px) {
     .life-btn { display: none; }
-    .life { padding: 0.15rem 0.6rem; }
+    .life { padding: 0.15rem 0.55rem; }
     .commander-add { display: none; }
 }
-
 /* ============================== Dice & coin ============================== */
 
 .roll-card {
@@ -308,47 +372,8 @@
 .die.is-max { color: var(--color-success); }
 .die.is-min { color: var(--color-error); }
 
-.coin {
-    width: 7rem;
-    height: 7rem;
-    perspective: 600px;
-}
-.coin-inner {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    transform-style: preserve-3d;
-}
-.coin-face {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    border-radius: 9999px;
-    backface-visibility: hidden;
-    font-weight: 800;
-    font-size: 1.05rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-secondary-content);
-    background:
-        radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.35), transparent 55%),
-        var(--color-secondary);
-    box-shadow:
-        inset 0 0 0 5px color-mix(in oklab, var(--color-secondary-content) 25%, transparent),
-        inset 0 0 0 9px var(--color-secondary),
-        inset 0 0 0 10px color-mix(in oklab, var(--color-secondary-content) 30%, transparent);
-}
-.coin-face svg { width: 42%; height: 42%; margin-bottom: 0.15rem; }
-.coin-face > div { display: flex; flex-direction: column; align-items: center; }
-.coin-face.back { transform: rotateY(180deg); }
-
-.roll-result-text {
-    font-size: 1.1rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    min-height: 1.5rem;
-}
+/* The coin uses the die look: same outline, tint and lettering */
+.die.coin .die-value { font-size: 1.15rem; letter-spacing: 0.04em; text-transform: uppercase; }
 
 /* Dice picker (top bar dropdown) */
 .dice-pick {
