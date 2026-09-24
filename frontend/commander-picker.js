@@ -1,6 +1,7 @@
 /**
  * Commander Picker Module
- * Search Scryfall for a commander (or two, for partners / backgrounds) and pick it
+ * Search Scryfall for a commander (or two, for partners / backgrounds) and pick it.
+ * The dialog's second tab holds the decklist (decklist.js).
  */
 
 import { escapeHtml } from './table-view.js';
@@ -14,9 +15,11 @@ let searchId = 0;
 let onSave = null;
 
 /**
- * @param {Function} save - Called with the chosen commanders when the player taps Done
+ * @param {Function} save - Called with the chosen commanders and the decklist tab's text
+ *   (undefined if it wasn't touched) when the player taps Done
+ * @param {Function} editedDeckText - Reads the decklist tab
  */
-function setupCommanderPicker(save) {
+function setupCommanderPicker(save, editedDeckText) {
     onSave = save;
     const modal = document.getElementById('commanderModal');
     const input = document.getElementById('commanderSearch');
@@ -44,14 +47,28 @@ function setupCommanderPicker(save) {
     });
 
     modal.addEventListener('close', () => {
-        if (modal.returnValue === 'save') onSave(selected.slice());
+        if (modal.returnValue === 'save') onSave(selected.slice(), editedDeckText());
     });
+
+    modal.querySelectorAll('[data-cmd-tab]').forEach(tab => {
+        tab.addEventListener('click', () => showTab(tab.dataset.cmdTab));
+    });
+}
+
+/** 'commander' or 'deck' */
+function showTab(name) {
+    const modal = document.getElementById('commanderModal');
+    modal.querySelectorAll('[data-cmd-tab]').forEach(tab => tab.classList.toggle('tab-active', tab.dataset.cmdTab === name));
+    modal.querySelectorAll('[data-cmd-panel]').forEach(panel => { panel.hidden = panel.dataset.cmdPanel !== name; });
+    document.getElementById('commanderPartnerLabel').style.visibility = name === 'commander' ? '' : 'hidden';
+    if (name === 'commander') document.getElementById('commanderSearch').focus();
 }
 
 /**
  * @param {Object[]} current - The commanders the player has now
+ * @param {string} tab - 'commander' or 'deck'
  */
-function openCommanderPicker(current) {
+function openCommanderPicker(current, tab = 'commander') {
     const modal = document.getElementById('commanderModal');
     selected = current.slice();
     results = [];
@@ -62,7 +79,7 @@ function openCommanderPicker(current) {
 
     modal.returnValue = '';
     modal.showModal();
-    document.getElementById('commanderSearch').focus();
+    showTab(tab);
 }
 
 function hint(text) {
@@ -148,6 +165,7 @@ function renderResults() {
 
 // ES6 Module Exports
 export {
+    toCommander,
     setupCommanderPicker,
     openCommanderPicker
 };

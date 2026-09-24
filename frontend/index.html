@@ -131,6 +131,9 @@
                 <p>Connecting to the table…</p>
             </div>
 
+            <!-- A player's decklist, opened by tapping their name -->
+            <div id="deckPanel" class="deck-panel" hidden></div>
+
             <!-- Dice rolls and coin flips appear here, over the cameras -->
             <div id="rollLayer" class="pointer-events-none absolute inset-0 z-20 flex flex-wrap items-center justify-center content-center gap-4 p-4"></div>
         </section>
@@ -332,22 +335,49 @@
     <dialog id="commanderModal" class="modal">
         <div class="modal-box w-11/12 max-w-3xl h-[85dvh] flex flex-col gap-3">
             <div class="flex items-center justify-between gap-2">
-                <h3 class="text-lg font-bold">Choose your commander</h3>
+                <div role="tablist" class="tabs tabs-box tabs-sm">
+                    <button type="button" role="tab" class="tab tab-active" data-cmd-tab="commander">Commander</button>
+                    <button type="button" role="tab" class="tab" data-cmd-tab="deck">Decklist</button>
+                </div>
                 <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost">✕</button></form>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2 min-h-12" id="commanderSelected"></div>
+            <!-- Commander -->
+            <div data-cmd-panel="commander" class="flex-1 min-h-0 flex flex-col gap-3">
+                <div class="flex flex-wrap items-center gap-2 min-h-12" id="commanderSelected"></div>
 
-            <label class="input w-full">
-                <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/></svg>
-                <input type="search" id="commanderSearch" class="grow" placeholder="Search a legendary creature…" autocomplete="off" />
-                <span class="loading loading-spinner loading-xs hidden" id="commanderLoading"></span>
-            </label>
+                <label class="input w-full">
+                    <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/></svg>
+                    <input type="search" id="commanderSearch" class="grow" placeholder="Search a legendary creature…" autocomplete="off" />
+                    <span class="loading loading-spinner loading-xs hidden" id="commanderLoading"></span>
+                </label>
 
-            <div id="commanderResults" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 gap-2 content-start"></div>
+                <div id="commanderResults" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 gap-2 content-start"></div>
+            </div>
+
+            <!-- Decklist: an Archidekt link, or the list as text -->
+            <div data-cmd-panel="deck" class="flex-1 min-h-0 flex flex-col gap-3" hidden>
+                <div class="join w-full">
+                    <label class="input join-item flex-1 min-w-0">
+                        <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                        <input type="url" id="deckLink" class="grow" placeholder="https://archidekt.com/decks/… (public deck)" autocomplete="off" />
+                    </label>
+                    <button type="button" class="btn join-item" id="deckImport">Import</button>
+                </div>
+                <div class="divider my-0 text-xs text-base-content/50">or paste the list</div>
+                <textarea id="deckText" class="textarea w-full flex-1 min-h-40 font-mono text-sm leading-snug" spellcheck="false"
+                          placeholder="Commander&#10;1 Atraxa, Praetors' Voice&#10;&#10;Deck&#10;1 Sol Ring&#10;1 Arcane Signet&#10;30 Forest"></textarea>
+                <div class="flex items-center justify-between gap-2">
+                    <span id="deckStatus" class="text-sm text-base-content/60 min-w-0 truncate"></span>
+                    <button type="button" class="btn btn-sm btn-ghost shrink-0" id="deckClear">Remove decklist</button>
+                </div>
+                <p class="text-xs text-base-content/50">
+                    Everyone at the table can open it by tapping your name. Cards are sorted by type with Scryfall when you tap Done.
+                </p>
+            </div>
 
             <div class="flex justify-between items-center gap-2">
-                <label class="label cursor-pointer gap-2 text-sm text-base-content">
+                <label class="label cursor-pointer gap-2 text-sm text-base-content" id="commanderPartnerLabel">
                     <input type="checkbox" class="toggle toggle-sm toggle-primary" id="commanderPartner" />
                     Partner / background (two commanders)
                 </label>

@@ -19,6 +19,7 @@ const ICONS = {
     turn: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></svg>',
     crown: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>',
     camera: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+    deck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="7" y="3" width="12" height="16" rx="2"/><path d="M5 7v12a2 2 0 0 0 2 2h9"/></svg>',
     counters: '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="M9 12h6M12 9v6"/></svg>',
     // Badges on the tile
     poison: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c-.4 0-.7.2-.9.5C9.3 6 6 10.4 6 14a6 6 0 0 0 12 0c0-3.6-3.3-8-5.1-11-.2-.3-.5-.5-.9-.5z"/></svg>',
@@ -49,7 +50,8 @@ let hooks = null;
 /**
  * @param {Object} appState - Application state
  * @param {Object} appHooks - Actions the tiles trigger:
- *   changeLife(id, delta), scanTile(id, clientX, clientY), openCommanderPicker(),
+ *   changeLife(id, delta), scanTile(id, clientX, clientY), openCommanderPicker(tab), openDeck(id),
+ *   deckChanged(id),
  *   showCommander(id, index), openSetup(), toggleCamera(), setOwnFlip(key, value), giveTurn(id),
  *   logEvent(html), openCounters(id), playerUpdated(id)
  */
@@ -92,6 +94,7 @@ function upsertPlayer(id, data = {}, options = {}) {
             cmdDamage: {},         // attacker's player id -> [damage from commander 1, from 2]
             conceded: false,
             out: false,
+            deckSize: 0,           // cards in their decklist (the list itself: decklist.js)
             viewFlipH: false,      // an extra flip only this browser applies
             viewFlipV: false,
             stream: null,
@@ -102,7 +105,8 @@ function upsertPlayer(id, data = {}, options = {}) {
 
     const wasOut = player.out;
     const before = { counters: { ...player.counters }, cmdDamage: player.cmdDamage };
-    for (const key of ['username', 'hp', 'commanders', 'flipH', 'flipV', 'connected', 'counters', 'cmdDamage', 'conceded', 'out']) {
+    const hadDeck = player.deckSize;
+    for (const key of ['username', 'hp', 'commanders', 'flipH', 'flipV', 'connected', 'counters', 'cmdDamage', 'conceded', 'out', 'deckSize']) {
         if (data[key] !== undefined) player[key] = data[key];
     }
 
@@ -116,6 +120,7 @@ function upsertPlayer(id, data = {}, options = {}) {
             : `<b>${escapeHtml(player.username)}</b> is back in the game`);
     }
     if (!isNew && !options.quiet) noteCounterChanges(player, before);
+    if (player.deckSize !== hadDeck) hooks.deckChanged?.(id);
     updateTile(player, options);
     hooks.playerUpdated?.(id);
     return player;
@@ -192,7 +197,7 @@ function createTile(player) {
         <div class="tile-status"></div>
         <div class="tile-top">
             <div class="tile-title">
-                <div class="tile-name"></div>
+                <button class="tile-name" title="Show the decklist"></button>
                 <div class="tile-markers"></div>
             </div>
             <div class="tile-tools">
@@ -259,6 +264,7 @@ function createTile(player) {
 
     tile.querySelectorAll('.life-btn').forEach(btn => setupLifeButton(btn, player.id));
     tile.querySelector('.tile-counters').addEventListener('click', () => hooks.openCounters(player.id));
+    tile.querySelector('.tile-name').addEventListener('click', () => hooks.openDeck(player.id));
     tile.querySelector('.tile-markers').addEventListener('click', () => hooks.openCounters(player.id));
 }
 
@@ -291,7 +297,8 @@ function updateTile(player, { quiet = false } = {}) {
     const tile = player.tile;
     if (!tile) return;
 
-    tile.querySelector('.tile-name').textContent = player.isLocal ? `${player.username} (you)` : player.username;
+    const name = player.isLocal ? `${player.username} (you)` : player.username;
+    tile.querySelector('.tile-name').innerHTML = `<span class="truncate">${escapeHtml(name)}</span>${player.deckSize ? ICONS.deck : ''}`;
 
     // Orientation
     const flip = effectiveFlip(player);
@@ -592,6 +599,7 @@ function openTileMenu(id, anchor) {
     if (player.isLocal) {
         items.push(`<div class="divider my-0"></div>`);
         items.push(`<li><a data-action="commander">${ICONS.crown} ${player.commanders.length ? 'Change commander' : 'Choose commander'}</a></li>`);
+        items.push(`<li><a data-action="decklist">${ICONS.deck.replace('<svg', '<svg class="h-4 w-4"')} ${player.deckSize ? 'Change decklist' : 'Add decklist'}…</a></li>`);
         items.push(`<li><a data-action="setup">${ICONS.camera} Name &amp; camera…</a></li>`);
         items.push(`<li><a data-action="camera">${ICONS.camera} Camera on ${check(state.cameraEnabled)}</a></li>`);
     }
@@ -620,6 +628,7 @@ function openTileMenu(id, anchor) {
             case 'view-flipV': player.viewFlipV = !player.viewFlipV; updateTile(player, { quiet: true }); clearOverlay(player); break;
             case 'focus': setFocus(id); setLayout('focus'); break;
             case 'commander': hooks.openCommanderPicker(); break;
+            case 'decklist': hooks.openCommanderPicker('deck'); break;
             case 'setup': hooks.openSetup(); break;
             case 'camera': hooks.toggleCamera(); break;
             case 'turn': hooks.giveTurn(id); break;

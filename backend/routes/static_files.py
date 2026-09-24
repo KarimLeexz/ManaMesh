@@ -25,6 +25,7 @@ ASSETS = {
     "commander-picker.js": "application/javascript",
     "chat.js": "application/javascript",
     "counters.js": "application/javascript",
+    "decklist.js": "application/javascript",
     "lobby.js": "application/javascript",
     "recognition-handler.js": "application/javascript",
     "app.css": "text/css",

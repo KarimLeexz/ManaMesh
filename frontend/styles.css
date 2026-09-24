@@ -553,3 +553,95 @@ input, textarea { user-select: text; }
 
 /* The hidden attribute always wins over display utilities */
 [hidden] { display: none !important; }
+
+/* ============================== Decklists ============================== */
+
+/* The name on a tile opens the player's decklist */
+.tile-name {
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+    cursor: pointer;
+    text-align: left;
+}
+.tile-name svg { width: 1em; height: 1em; flex-shrink: 0; opacity: 0.8; }
+.tile-name:hover { background: rgb(0 0 0 / 0.75); }
+
+/* The window over the play area */
+.deck-panel {
+    position: absolute;
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    width: min(44rem, 100%);
+    max-height: min(80%, 40rem);
+    border-radius: var(--radius-box, 1rem);
+    background: color-mix(in oklab, var(--color-base-100) 94%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+    backdrop-filter: blur(12px);
+    animation: fadeIn 0.15s ease;
+    overflow: hidden;
+}
+.deck-body {
+    flex: 1;
+    display: flex;
+    gap: 0.75rem;
+    min-height: 0;
+    padding: 0.5rem 0.75rem 0.75rem;
+}
+.deck-list {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    columns: 2 12rem;
+    column-gap: 1rem;
+    scrollbar-width: thin;
+}
+.deck-group { break-inside: avoid; margin-bottom: 0.6rem; }
+.deck-group h4 {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+    padding-bottom: 0.15rem;
+    margin-bottom: 0.15rem;
+}
+.deck-card {
+    display: flex;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.35rem;
+    font-size: 0.8rem;
+    text-align: left;
+    line-height: 1.35;
+    min-width: 0;
+}
+.deck-card:hover, .deck-card.active { background: color-mix(in oklab, var(--color-primary) 18%, transparent); }
+.deck-qty {
+    min-width: 1.4em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+}
+.deck-preview {
+    flex-shrink: 0;
+    width: 13rem;
+    align-self: flex-start;
+    position: sticky;
+    top: 0;
+}
+.deck-preview img {
+    width: 100%;
+    height: auto;
+    border-radius: 4.75% / 3.5%;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+@media (max-width: 640px) {
+    .deck-preview { display: none; }
+}

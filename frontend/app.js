@@ -12,6 +12,7 @@
  * - recognition-handler.js: Card recognition, scanned cards, card search
  * - chat.js: Table-wide text chat
  * - counters.js: Counters, commander damage, monarch / initiative, out of the game
+ * - decklist.js: Decklists (Archidekt link or text), shown when tapping a player's name
  *
  * Every table has its own link, /t/<code>; tables are created in the lobby (lobby.js, at /).
  */
@@ -50,7 +51,16 @@ import {
 } from './table-view.js';
 
 import { initGameTools, showRoll, logEvent, setTurn, giveTurn } from './game-tools.js';
-import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
+import { setupCommanderPicker, openCommanderPicker, toCommander } from './commander-picker.js';
+import {
+    initDecklists,
+    loadDeckEditor,
+    editedDeckText,
+    saveDeck,
+    fetchDeck,
+    toggleDeckPanel,
+    deckChanged
+} from './decklist.js';
 import { initChat, receiveChatMessage } from './chat.js';
 import { initCounters, openCounters, refreshCounters } from './counters.js';
 
@@ -232,7 +242,18 @@ const tileHooks = {
         }
     },
     scanTile: (id, x, y) => scanTile(state, id, x, y, API_URL, showToast),
-    openCommanderPicker: () => openCommanderPicker(state.players.get('local')?.commanders || []),
+    /** The commander dialog, with our decklist in its second tab ('commander' / 'deck') */
+    async openCommanderPicker(tab = 'commander') {
+        const me = state.players.get('local');
+        let deck = null;
+        if (me?.deckSize) {
+            try { deck = await fetchDeck(me); } catch { /* start empty */ }
+        }
+        loadDeckEditor(deck, (me?.commanders || []).map(card => card.name));
+        openCommanderPicker(me?.commanders || [], tab);
+    },
+    openDeck: (id) => toggleDeckPanel(id, tileHooks),
+    deckChanged,
     showCommander(id, index) {
         const player = state.players.get(id);
         const card = player?.commanders[index];
@@ -276,7 +297,11 @@ window.addEventListener('DOMContentLoaded', () => {
         setConceded: (id, conceded) => updatePlayer(id, { conceded })
     });
     setupInvite();
-    setupCommanderPicker(commanders => updateMe({ commanders }));
+    initDecklists(state);
+    setupCommanderPicker(async (commanders, deckText) => {
+        updateMe({ commanders });
+        if (deckText !== undefined) await saveDeck(deckText, commanders, updateMe, toCommander);
+    }, editedDeckText);
     setupCameraDialog(state, showToast);
     setupSetupForm();
     setupCardSearch();
