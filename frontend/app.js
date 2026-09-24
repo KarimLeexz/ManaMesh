@@ -10,6 +10,9 @@
  * - commander-picker.js: Choosing a commander
  * - recognition-handler.js: Card recognition, scanned cards, card search
  * - chat.js: Table-wide text chat
+ * - counters.js: Counters, commander damage, monarch / initiative, out of the game
+ *
+ * Every table has its own link, /t/<code>. Opening the site without one starts a new table.
  */
 
 // ES6 Module Imports
@@ -35,12 +38,15 @@ import {
     setPlayerStream,
     removePlayer,
     setLayout,
+    updateTurnMarkers,
+    serverId,
     showToast
 } from './table-view.js';
 
 import { initGameTools, showRoll, logEvent, setTurn, giveTurn } from './game-tools.js';
 import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
 import { initChat, receiveChatMessage } from './chat.js';
+import { initCounters, openCounters, refreshCounters } from './counters.js';
 
 import {
     scanTile,
@@ -60,22 +66,69 @@ function save(key, value) {
     try { localStorage.setItem(key, value); } catch { /* private mode */ }
 }
 
+// Words for new table links: "brave-dragon-417"
+const TABLE_WORDS = [
+    ['red', 'blue', 'green', 'black', 'white', 'golden', 'wild', 'swift', 'quiet', 'brave',
+     'dark', 'bright', 'ancient', 'hidden', 'mighty', 'lucky', 'fierce', 'silent', 'grim', 'noble'],
+    ['dragon', 'goblin', 'sphinx', 'hydra', 'angel', 'demon', 'elf', 'golem', 'phoenix', 'kraken',
+     'wurm', 'sliver', 'djinn', 'faerie', 'vampire', 'zombie', 'merfolk', 'griffin', 'titan', 'wizard']
+];
+
+function randomIndex(n) {
+    return crypto.getRandomValues(new Uint32Array(1))[0] % n;
+}
+
+/**
+ * The table in the URL (/t/<code>). Without one, a new table is started and the URL
+ * becomes its link, ready to share.
+ */
+function tableFromUrl() {
+    const match = location.pathname.match(/^\/t\/([a-z0-9-]{3,40})\/?$/i);
+    if (match) return match[1].toLowerCase();
+    const code = `${TABLE_WORDS[0][randomIndex(TABLE_WORDS[0].length)]}-` +
+                 `${TABLE_WORDS[1][randomIndex(TABLE_WORDS[1].length)]}-${100 + randomIndex(900)}`;
+    history.replaceState(null, '', `/t/${code}`);
+    return code;
+}
+
+/**
+ * This tab's player id. It survives a reload (sessionStorage), so the server gives us our
+ * seat back; another tab is another player.
+ */
+function tabPlayerId() {
+    try {
+        let id = sessionStorage.getItem('playerId');
+        if (!id) {
+            id = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+            sessionStorage.setItem('playerId', id);
+        }
+        return id;
+    } catch {
+        return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+    }
+}
+
 // Global application state
 const state = {
+    room: tableFromUrl(),
+    playerId: tabPlayerId(),
+    role: 'player',       // or 'spectator': watching only
+    spectators: new Map(),  // player id -> name, of everyone watching
+    markers: { monarch: null, initiative: null },   // player id holding each
     socket: null,
     localStream: null,
     selectedDeviceId: load('cameraId', null),
     username: load('username', ''),
     flipH: load('flipH', 'false') === 'true',   // how our camera is shown to everyone
     flipV: load('flipV', 'false') === 'true',
-    players: new Map(),   // 'local' or socket id -> player (see table-view.js)
-    peers: new Map(),     // socket id -> SimplePeer instance
+    players: new Map(),   // 'local' or player id -> player (see table-view.js)
+    peers: new Map(),     // player id -> SimplePeer instance
     cameraEnabled: false,
     hasJoinedRoom: false,
     layout: load('layout', 'grid') === 'focus' ? 'focus' : 'grid',
     focusId: null,
     turn: null,           // { order, current, number } from the server
-    turnId: null,         // player id ('local' or socket id) whose turn it is
+    turnId: null,         // whose turn it is ('local' or a player id)
     startingLife: 40,
     isScanning: false
 };
@@ -93,8 +146,44 @@ const handlers = {
     setPlayerStream,
     removePlayer,
     receiveChatMessage,
+    applyTable,
+    setSpectators,
+    roleChanged,
     createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
 };
+
+/**
+ * Table-wide state from the server: starting life, markers (the turn goes through setTurn)
+ */
+function applyTable(table) {
+    if (table.startingLife !== undefined) state.startingLife = table.startingLife;
+    if (table.markers) {
+        state.markers = table.markers;
+        updateTurnMarkers();
+        refreshCounters();
+    }
+}
+
+/** Who is watching, in the top bar */
+function setSpectators() {
+    const names = [...state.spectators.values()];
+    const badge = document.getElementById('spectatorBadge');
+    badge.classList.toggle('hidden', names.length === 0);
+    document.getElementById('spectatorCount').textContent = names.length;
+    document.getElementById('spectatorTip').dataset.tip = `Watching: ${names.join(', ')}`;
+}
+
+/** Playing or watching: watchers don't get the controls that change the game */
+function roleChanged() {
+    document.body.classList.toggle('is-spectator', state.role === 'spectator');
+    refreshCounters();
+}
+
+/** Send a change for any player at the table */
+function updatePlayer(id, changes) {
+    if (!state.socket?.connected) return;
+    state.socket.emit('player-update', { target: serverId(id), ...changes });
+}
 
 /**
  * Send a change of our own player to the table (or just apply it while offline)
@@ -113,8 +202,7 @@ function updateMe(changes) {
 const tileHooks = {
     changeLife(id, delta) {
         if (state.socket?.connected) {
-            const target = id === 'local' ? state.socket.id : id;
-            state.socket.emit('player-update', { target, hpDelta: delta });
+            updatePlayer(id, { hpDelta: delta });
         } else {
             const player = state.players.get(id);
             if (player) upsertPlayer(id, { hp: player.hp + delta });
@@ -137,6 +225,8 @@ const tileHooks = {
     },
     giveTurn,
     logEvent,
+    openCounters,
+    playerUpdated: (id) => refreshCounters(id),
     setOwnFlip(key, value) {
         state[key] = value;
         save(key, String(value));
@@ -152,6 +242,13 @@ window.addEventListener('DOMContentLoaded', () => {
     initTableView(state, tileHooks);
     initGameTools(state, { showToast, upsertPlayer });
     initChat(state);
+    initCounters(state, {
+        changeCounter: (id, name, delta) => updatePlayer(id, { counter: { name, delta } }),
+        changeCommanderDamage: (id, source, index, delta) => updatePlayer(id, { cmdDamage: { source, index, delta } }),
+        setMarker: (marker, id) => state.socket?.emit('set-marker', { marker, target: id === null ? null : serverId(id) }),
+        setConceded: (id, conceded) => updatePlayer(id, { conceded })
+    });
+    setupInvite();
     setupCommanderPicker(commanders => updateMe({ commanders }));
     setupCameraDialog(state, showToast);
     setupSetupForm();
@@ -200,6 +297,8 @@ function setupSetupForm() {
         submitSetup(true);
     });
     document.getElementById('joinWithoutCameraButton').addEventListener('click', () => submitSetup(false));
+    document.getElementById('watchButton').addEventListener('click', () => submitSetup(false, 'spectator'));
+    document.getElementById('takeSeatButton').addEventListener('click', () => state.socket?.emit('take-seat'));
     document.getElementById('setupCancelButton').addEventListener('click', () => closeSetup(state));
 
     // Before joining, the dialog is the way in: it can't be dismissed. (Browsers don't
@@ -214,9 +313,29 @@ function setupSetupForm() {
 }
 
 /**
- * @param {boolean} withCamera - Join (or carry on) with the camera from the preview
+ * The table's link: in the join dialog and behind the invite button
  */
-async function submitSetup(withCamera) {
+function setupInvite() {
+    const link = () => `${location.origin}/t/${state.room}`;
+    document.getElementById('tableCode').textContent = state.room;
+
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(link());
+            showToast('Invite link copied. Send it to your friends!', 'success');
+        } catch {
+            window.prompt('Copy this link and send it to your friends:', link());
+        }
+    };
+    document.getElementById('inviteButton').addEventListener('click', copy);
+    document.getElementById('copyTableLink').addEventListener('click', copy);
+}
+
+/**
+ * @param {boolean} withCamera - Join (or carry on) with the camera from the preview
+ * @param {string} role - 'player', or 'spectator' to only watch
+ */
+async function submitSetup(withCamera, role = 'player') {
     const username = document.getElementById('usernameInput').value.trim().slice(0, 24) || 'Player';
     const flipH = document.getElementById('flipHInput').checked;
     const flipV = document.getElementById('flipVInput').checked;
@@ -236,10 +355,14 @@ async function submitSetup(withCamera) {
     Object.assign(state, { username, flipH, flipV });
 
     if (!state.hasJoinedRoom) {
-        upsertPlayer('local', { username, flipH, flipV, hp: state.startingLife });
-        if (stream) await useStream(state, stream, handlers);
+        state.role = role;
+        roleChanged();
+        if (role === 'player') {
+            upsertPlayer('local', { username, flipH, flipV, hp: state.startingLife });
+            if (stream) await useStream(state, stream, handlers);
+        }
         initializeSocketIO(API_URL, state, handlers);
-        showToast(`Welcome, ${username}!`, 'success');
+        showToast(role === 'player' ? `Welcome, ${username}!` : `Welcome, ${username}! You're watching.`, 'success');
         return;
     }
 

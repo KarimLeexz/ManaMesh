@@ -13,6 +13,11 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 - ❤️ **Life & commanders** - Every player has a life counter (starts at 40) and a commander, synced for everyone
 - 🎲 **Dice & coin** - d4, d6, d8, d10, d12, d20 and a coin flip, animated and shown to the whole table
 - ⏭️ **Turns** - Random turn order per game, pass with Space, easy to undo
+- 🔗 **Tables** - Every table has its own link; send it to your friends to sit down together
+- 🔁 **Reconnect** - Reloading or a dropped connection keeps your seat, life and place in the turn order
+- ⚔️ **Counters** - Commander damage (21 = out, also taken off life), poison (10 = out), energy, experience,
+  the monarch and the initiative; players who are out are skipped when passing the turn
+- 👁️ **Spectators** - Just watch a table (all cameras, no seat), and take a seat whenever you like
 - 🔄 **New game** - Reset life, commanders or both for the whole table (starting life 20/30/40)
 - 🪞 **Camera mirroring** - Mirror / flip your own camera for everyone, or anyone's camera just for you
 - 🎨 **Modern UI** - Built with daisyUI 5 and Tailwind CSS 4
@@ -104,23 +109,35 @@ Navigate to: **http://localhost:8000**
 
 ## Usage
 
-1. **Join** - Enter your name, pick your camera and mirror / flip it until your cards read the right way round
-   (the preview shows exactly what the others see). Allow camera access when the browser asks
+1. **Join** - Opening the site starts a new table at its own link (`/t/brave-dragon-417`); send that link
+   (🔗 button, or *Invite* in the join dialog) to your friends. Enter your name, pick your camera and
+   mirror / flip it until your cards read the right way round (the preview shows exactly what the others
+   see). Allow camera access when the browser asks. *Just watch* joins as a spectator: you see every
+   camera but have no seat; *Take a seat* in the top bar makes you a player
 2. **Layout** - The two buttons at the right of the top bar: *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
 3. **Life** - Tap − / + on any player's tile (hold to count faster). Everyone can change everyone's life,
    so whoever deals the damage can count it
 4. **Commander** - Tap *Commander* on your tile to search for it (partner / background: up to two)
-5. **Dice & coin** - Top bar; the result pops up on every player's screen and lands in the *Log*
-6. **Turns** - *Start turns* (or **Space**) shuffles a random turn order; after that **Space** or
+5. **Counters** - The shield button next to a player's life opens their counters: commander damage taken
+   from each opponent's commander (also comes off their life), poison, energy, experience, the monarch
+   and the initiative, and *Out of the game* for conceding. Non-zero counters show as badges on the tile.
+   At 0 life, 10 poison or 21 damage from one commander a player is out automatically: greyed out and
+   skipped when passing the turn
+6. **Dice & coin** - Top bar; the result pops up on every player's screen and lands in the *Log*
+7. **Turns** - *Start turns* (or **Space**) shuffles a random turn order; after that **Space** or
    *Pass turn* passes it on, for whoever's turn it is. Passed by mistake? **Shift+Space** or ↶ takes
    it back, and the ⋮ menu on a tile gives the turn straight to that player. In *Focus* the player
    whose turn it is is shown big. Once there is a turn order, the cameras are arranged in it (seating order)
-7. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table. Resetting
+8. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table. Resetting
    life starts a new game with a newly shuffled turn order
-8. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel
-9. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
+9. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel
+10. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
 
 The ⋮ menu on a tile mirrors that camera just for you, or (on your own tile) changes what everybody sees.
+
+Reloading the page or losing the connection keeps your seat: life, counters, commanders and your place in
+the turn order are waiting when you join again (the others see you as *Reconnecting…*). A seat is kept
+for 15 minutes. Coming back in another tab or browser works too, as long as you use the same name.
 
 ### Tips for Best Results
 
@@ -146,6 +163,8 @@ ManaMesh/
 │   ├── table-view.js        # Player tiles, layouts, life counters
 │   ├── game-tools.js        # Dice, coin, reset, log
 │   ├── commander-picker.js  # Commander search
+│   ├── counters.js          # Counters, commander damage, monarch / initiative
+│   ├── chat.js              # Table chat
 │   ├── camera-manager.js    # Join dialog, local camera
 │   ├── webrtc-manager.js    # Video connections + shared table state
 │   └── recognition-handler.js # Card scanning, scanned cards, search
@@ -192,7 +211,7 @@ so a single process on a single host is all that is needed. The build artifacts 
 ## Future Enhancements
 
 - [x] WebRTC multiplayer support ✅
-- [ ] Room creation and joining
+- [x] Room creation and joining ✅
 - [ ] Card history/collection tracking
 - [ ] Batch scanning
 - [ ] OCR fallback for difficult cards

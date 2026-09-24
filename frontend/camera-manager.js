@@ -75,6 +75,7 @@ async function openSetup(state, showToast) {
     document.getElementById('joinWithoutCameraButton').textContent = joined ? 'Turn camera off' : 'Join without camera';
     document.getElementById('joinWithoutCameraButton').classList.toggle('hidden', joined && !state.cameraEnabled);
     document.getElementById('setupCancelButton').classList.toggle('hidden', !joined);
+    document.getElementById('watchButton').classList.toggle('hidden', joined);
 
     document.getElementById('usernameInput').value = state.username || '';
     document.getElementById('flipHInput').checked = state.flipH;

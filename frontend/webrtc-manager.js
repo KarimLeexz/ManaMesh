@@ -1,16 +1,17 @@
 /**
  * WebRTC Manager Module
  * Handles Socket.IO connections, WebRTC peer connections, signaling, and the shared
- * table state the server keeps (life totals, commanders, orientation, rolls, resets).
+ * table state the server keeps (life totals, counters, commanders, orientation, turns,
+ * rolls, resets, who is playing and who is watching).
  */
 
 import { IS_MOBILE } from './camera-manager.js';
 
 /**
- * The table knows this browser as 'local'; the server knows it by its socket id
+ * The table knows this browser as 'local'; the server knows it by its player id
  */
 function keyOf(userId, state) {
-    return userId === state.socket?.id ? 'local' : userId;
+    return userId === state.playerId ? 'local' : userId;
 }
 
 /**
@@ -18,23 +19,48 @@ function keyOf(userId, state) {
  * @param {string} API_URL - Server API URL
  * @param {Object} state - Application state object
  * @param {Object} handlers - { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection,
- *                              showToast, logEvent, showRoll, receiveChatMessage }
+ *                              showToast, logEvent, showRoll, setTurn, receiveChatMessage,
+ *                              applyTable, setSpectators, roleChanged }
  */
 function initializeSocketIO(API_URL, state, handlers) {
-    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll, setTurn, receiveChatMessage } = handlers;
+    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent,
+            showRoll, setTurn, receiveChatMessage, applyTable, roleChanged } = handlers;
     console.log('Connecting to Socket.IO server...');
 
     state.socket = io(API_URL, {
         transports: ['websocket', 'polling']
     });
 
+    /** Drop the connection to someone (they left, dropped out or are reconnecting) */
+    const dropPeer = (userId) => {
+        const peer = state.peers.get(userId);
+        if (peer) {
+            peer.destroy();
+            state.peers.delete(userId);
+        }
+    };
+
+    /** A video connection is only needed if at least one of the two is playing */
+    const needsPeer = (user) => user.connected && (state.role === 'player' || user.role === 'player');
+
+    const addSpectator = (user) => {
+        state.spectators.set(user.userId, user.username);
+        handlers.setSpectators();
+    };
+    const removeSpectator = (userId) => {
+        if (state.spectators.delete(userId)) handlers.setSpectators();
+    };
+
     state.socket.on('connect', () => {
         console.log('✓ Connected to signaling server');
 
-        // Join the room. After a dropped connection our life total and commanders come
-        // along, so the server carries on where it was.
+        // Sit down at the table (or back in our seat: the server knows our player id).
+        // After a server restart it doesn't, so our life total and commanders come along.
         const me = state.players.get('local');
         state.socket.emit('join', {
+            room: state.room,
+            playerId: state.playerId,
+            role: state.role,
             username: state.username,
             flipH: state.flipH,
             flipV: state.flipV,
@@ -43,38 +69,48 @@ function initializeSocketIO(API_URL, state, handlers) {
         state.hasJoinedRoom = true;
     });
 
-    state.socket.on('existing-users', ({ users, you, startingLife, turn }) => {
-        console.log(`Found ${users.length} existing users:`, users);
-        state.startingLife = startingLife;
-        upsertPlayer('local', you, { quiet: true });
+    state.socket.on('join-error', ({ message }) => showToast(message, 'error'));
 
-        // Create peer connections to existing users
+    state.socket.on('existing-users', ({ users, you, table }) => {
+        console.log(`Found ${users.length} others at the table:`, users);
+        const wasRole = state.role;
+        state.role = you.role;
+        applyTable(table);
+        if (you.role === 'player') upsertPlayer('local', you, { quiet: true });
+        else removePlayer('local');
+        if (wasRole !== you.role) roleChanged();
+
         users.forEach(user => {
-            upsertPlayer(user.userId, user, { quiet: true });
-            createPeerConnection(user.userId, true);
+            if (user.role === 'spectator') addSpectator(user);
+            else upsertPlayer(user.userId, user, { quiet: true });
+            // We're the new one: we open the connections
+            if (needsPeer(user)) createPeerConnection(user.userId, true);
         });
-        setTurn(turn);
+        setTurn(table.turn);
     });
 
-    state.socket.on('user-joined', (user) => {
-        console.log(`New user joined: ${user.username} (${user.userId})`);
-        showToast(`${user.username} joined the table`, 'info');
-        logEvent(`<b>${escape(user.username)}</b> joined`);
+    state.socket.on('user-joined', ({ user, table, rejoined }) => {
+        console.log(`${rejoined ? 'Back' : 'Joined'}: ${user.username} (${user.userId})`);
 
-        // Placeholder tile until their video arrives; the peer is created on their signal
-        upsertPlayer(user.userId, user, { quiet: true });
-        setTurn(user.turn);
+        // Whatever connection we had to them is stale now; they open a new one
+        dropPeer(user.userId);
+        if (user.role === 'spectator') {
+            addSpectator(user);
+            showToast(`${user.username} is watching`, 'info');
+            logEvent(`<b>${escape(user.username)}</b> is watching`);
+        } else {
+            if (state.players.has(user.userId)) setPlayerStream(user.userId, null);
+            upsertPlayer(user.userId, user, { quiet: true });
+            showToast(rejoined ? `${user.username} is back` : `${user.username} joined the table`, 'info');
+            logEvent(`<b>${escape(user.username)}</b> ${rejoined ? 'is back' : 'joined'}`);
+        }
+        applyTable(table);
+        setTurn(table.turn);
     });
 
     state.socket.on('user-left', ({ userId }) => {
         console.log(`User left: ${userId}`);
-
-        // Clean up peer connection
-        const peer = state.peers.get(userId);
-        if (peer) {
-            peer.destroy();
-            state.peers.delete(userId);
-        }
+        dropPeer(userId);
 
         const player = state.players.get(userId);
         if (player) {
@@ -82,6 +118,7 @@ function initializeSocketIO(API_URL, state, handlers) {
             logEvent(`<b>${escape(player.username)}</b> left`);
         }
         removePlayer(userId);
+        removeSpectator(userId);
     });
 
     state.socket.on('signal', ({ from, signal }) => {
@@ -112,12 +149,14 @@ function initializeSocketIO(API_URL, state, handlers) {
         console.log('✗ Disconnected from signaling server');
         showToast('Lost the connection to the table, reconnecting…', 'warning');
 
-        // Everyone gets a new id when we're back, so start from a clean table
+        // We get everybody again when we're back, so start from a clean table
         for (const peer of state.peers.values()) peer.destroy();
         state.peers.clear();
         for (const id of [...state.players.keys()]) {
             if (id !== 'local') removePlayer(id);
         }
+        state.spectators.clear();
+        handlers.setSpectators();
         setTurn({ order: [], current: null, number: 0 });
     });
 
@@ -127,33 +166,65 @@ function initializeSocketIO(API_URL, state, handlers) {
         if (enabled) {
             // They enabled camera - they will recreate peer connection as initiator
             // We should destroy our old peer and wait for their new offer
-            const existingPeer = state.peers.get(userId);
-            if (existingPeer) {
-                existingPeer.destroy();
-                state.peers.delete(userId);
-            }
+            dropPeer(userId);
         }
         // Placeholder until (if) the new video arrives
         setPlayerStream(userId, null);
     });
 
-    // Someone's life, commanders, name or orientation changed (possibly our own).
-    // upsertPlayer -> updateTile logs life and commander changes itself.
-    state.socket.on('player-updated', (player) => {
-        const id = keyOf(player.userId, state);
-        if (!state.players.get(id)) return;
-        upsertPlayer(id, player);
+    // Someone's life, counters, commanders, name, orientation, connection or role changed
+    // (possibly our own). upsertPlayer -> updateTile logs life and commander changes itself.
+    state.socket.on('player-updated', (user) => {
+        const id = keyOf(user.userId, state);
+
+        if (user.role === 'spectator') {
+            if (id !== 'local') addSpectator(user);
+            return;
+        }
+
+        // A spectator took a seat
+        const newPlayer = !state.players.has(id);
+        if (newPlayer) {
+            removeSpectator(user.userId);
+            if (id === 'local') {
+                state.role = 'player';
+                roleChanged();
+                // Spectators had no connection to each other: now we're playing, we need one
+                for (const spectatorId of state.spectators.keys()) {
+                    if (!state.peers.has(spectatorId)) createPeerConnection(spectatorId, true);
+                }
+            } else {
+                logEvent(`<b>${escape(user.username)}</b> took a seat`);
+            }
+        }
+
+        if (id !== 'local' && !user.connected) {
+            // Dropped out: the seat stays (shown as reconnecting), the video goes
+            dropPeer(user.userId);
+            setPlayerStream(id, null);
+        }
+        upsertPlayer(id, user, { quiet: newPlayer });
     });
 
-    state.socket.on('table-reset', ({ what, by, startingLife, players, turn }) => {
-        state.startingLife = startingLife;
+    state.socket.on('markers-changed', ({ markers, marker, by }) => {
+        const holder = markers[marker];
+        applyTable({ markers });
+        const name = holder ? (holder === state.playerId ? 'You' : state.players.get(holder)?.username || '?') : null;
+        const label = marker === 'monarch' ? 'the monarch' : 'the initiative';
+        logEvent(name
+            ? `<b>${escape(name)}</b> ${name === 'You' ? 'have' : 'has'} ${label}`
+            : `${escape(by)} removed ${label}`);
+    });
+
+    state.socket.on('table-reset', ({ what, by, players, table }) => {
+        applyTable(table);
         for (const player of players) upsertPlayer(keyOf(player.userId, state), player, { quiet: true });
 
-        const label = { life: `life (${startingLife})`, commanders: 'commanders', all: 'everything' }[what];
+        const label = { life: `life (${table.startingLife})`, commanders: 'commanders', all: 'everything' }[what];
         showToast(`${by} reset ${label}`, 'info');
         logEvent(`<b>${escape(by)}</b> reset ${label}`);
         // A reset of life starts a new game, with a newly shuffled turn order
-        setTurn(turn, what === 'commanders' ? {} : { action: 'start', by });
+        setTurn(table.turn, what === 'commanders' ? {} : { action: 'start', by });
     });
 
     state.socket.on('turn-changed', ({ turn, action, by }) => setTurn(turn, { action, by }));
@@ -330,7 +401,10 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
 
     peer.on('stream', remoteStream => {
         console.log(`✓ Received stream from ${nameOf()}`, remoteStream.getTracks());
-        if (!state.players.has(userId)) upsertPlayer(userId, {});
+        if (!state.players.has(userId)) {
+            if (state.spectators.has(userId)) return;   // spectators have no seat to show it in
+            upsertPlayer(userId, {});
+        }
 
         // Check if stream has active tracks
         const hasActiveTracks = remoteStream.getTracks().some(track => track.enabled && track.readyState === 'live');
@@ -344,7 +418,8 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
 
     peer.on('error', err => {
         console.error(`Peer connection error with ${userId}:`, err);
-        showToast(`Connection problem with ${nameOf()}`, 'error');
+        // The other side closing the connection (reload, leaving) is no problem worth a warning
+        if (err.code !== 'ERR_DATA_CHANNEL') showToast(`Connection problem with ${nameOf()}`, 'error');
     });
 
     peer.on('close', () => {
