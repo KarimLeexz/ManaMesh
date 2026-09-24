@@ -19,7 +19,7 @@ function keyOf(userId, state) {
  *                              showToast, logEvent, showRoll }
  */
 function initializeSocketIO(API_URL, state, handlers) {
-    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll } = handlers;
+    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll, setTurn } = handlers;
     console.log('Connecting to Socket.IO server...');
 
     state.socket = io(API_URL, {
@@ -41,7 +41,7 @@ function initializeSocketIO(API_URL, state, handlers) {
         state.hasJoinedRoom = true;
     });
 
-    state.socket.on('existing-users', ({ users, you, startingLife }) => {
+    state.socket.on('existing-users', ({ users, you, startingLife, turn }) => {
         console.log(`Found ${users.length} existing users:`, users);
         state.startingLife = startingLife;
         upsertPlayer('local', you, { quiet: true });
@@ -51,6 +51,7 @@ function initializeSocketIO(API_URL, state, handlers) {
             upsertPlayer(user.userId, user, { quiet: true });
             createPeerConnection(user.userId, true);
         });
+        setTurn(turn);
     });
 
     state.socket.on('user-joined', (user) => {
@@ -60,6 +61,7 @@ function initializeSocketIO(API_URL, state, handlers) {
 
         // Placeholder tile until their video arrives; the peer is created on their signal
         upsertPlayer(user.userId, user, { quiet: true });
+        setTurn(user.turn);
     });
 
     state.socket.on('user-left', ({ userId }) => {
@@ -112,6 +114,7 @@ function initializeSocketIO(API_URL, state, handlers) {
         for (const id of [...state.players.keys()]) {
             if (id !== 'local') removePlayer(id);
         }
+        setTurn({ order: [], current: null, number: 0 });
     });
 
     state.socket.on('camera-status-changed', ({ userId, enabled }) => {
@@ -144,14 +147,18 @@ function initializeSocketIO(API_URL, state, handlers) {
         }
     });
 
-    state.socket.on('table-reset', ({ what, by, startingLife, players }) => {
+    state.socket.on('table-reset', ({ what, by, startingLife, players, turn }) => {
         state.startingLife = startingLife;
         for (const player of players) upsertPlayer(keyOf(player.userId, state), player, { quiet: true });
 
         const label = { life: `life (${startingLife})`, commanders: 'commanders', all: 'everything' }[what];
         showToast(`${by} reset ${label}`, 'info');
         logEvent(`<b>${escape(by)}</b> reset ${label}`);
+        // A reset of life starts a new game, with a newly shuffled turn order
+        setTurn(turn, what === 'commanders' ? {} : { action: 'start', by });
     });
+
+    state.socket.on('turn-changed', ({ turn, action, by }) => setTurn(turn, { action, by }));
 
     state.socket.on('rolled', ({ userId, username, kind, result }) => {
         showRoll({ userId, username, kind, result });
