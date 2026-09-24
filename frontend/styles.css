@@ -1,146 +1,441 @@
 /**
  * ManaMesh Custom Styles
- * Custom CSS for card recognition interface
- * Updated: 2025-10-12
+ * Everything daisyUI / Tailwind doesn't cover: camera tiles, life counters,
+ * dice and coin animations, scanned card previews.
+ * Colours come from the daisyUI theme variables (--color-*), so both themes just work.
  */
 
-/* Video Elements */
-#video {
-    transform: scaleX(-1); /* Mirror the video */
-    max-width: 100%;
-    border-radius: 0.5rem;
+/* ============================== Camera tiles ============================== */
+
+.tile {
+    position: relative;
+    container-type: size;
+    border-radius: var(--radius-box, 1rem);
+    background: #000;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+    transition: outline-color 0.15s ease;
 }
 
-#canvas {
+/* The small cameras under the big one: tap to make it the big one */
+.tile.is-thumb {
+    height: 100%;
+    aspect-ratio: 16 / 9;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.tile.is-thumb:hover { outline-color: var(--color-primary); }
+
+.tile.is-main { width: 100%; height: 100%; }
+.tile.is-local { box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary) 55%, transparent); }
+
+.tile-media {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    background: #000;
+}
+
+/* object-fit: contain, so nothing on the table is ever cut off (cards at the edge matter) */
+.tile-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: transform 0.25s ease;
+}
+
+.tile-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* No camera: show the commander art (if any), darkened, behind a camera-off icon */
+.tile-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: rgb(255 255 255 / 0.55);
+    background: var(--color-neutral) center / cover no-repeat;
+}
+.tile-placeholder::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgb(0 0 0 / 0.55);
+}
+.tile-placeholder > * { position: relative; }
+.tile-placeholder svg { width: clamp(1.5rem, 18cqmin, 4rem); height: auto; }
+.tile-placeholder span { font-size: clamp(0.65rem, 5cqmin, 1rem); }
+
+/* Where a scan was tapped */
+.tile-ping {
+    position: absolute;
+    width: 3rem;
+    height: 3rem;
+    margin: -1.5rem 0 0 -1.5rem;
+    border: 4px solid var(--color-primary);
+    border-radius: 9999px;
+    pointer-events: none;
+    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes ping {
+    75%, 100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* Overlays on top of the video */
+.tile-top, .tile-bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: clamp(0.25rem, 2.5cqmin, 0.75rem);
+    pointer-events: none;
+}
+.tile-top > *, .tile-bottom > * { pointer-events: auto; }
+.tile-top { top: 0; align-items: flex-start; }
+.tile-bottom { bottom: 0; align-items: flex-end; }
+
+.tile-name {
+    max-width: 60%;
+    padding: 0.15em 0.65em;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.6);
+    color: #fff;
+    font-weight: 600;
+    font-size: clamp(0.65rem, 5cqmin, 1.05rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    backdrop-filter: blur(4px);
+}
+
+.tile-tools { display: flex; gap: 0.35rem; }
+.tile-icon-btn {
+    display: grid;
+    place-items: center;
+    width: clamp(1.6rem, 11cqmin, 2.5rem);
+    height: clamp(1.6rem, 11cqmin, 2.5rem);
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    opacity: 0.75;
+    transition: opacity 0.15s, background 0.15s;
+    backdrop-filter: blur(4px);
+}
+.tile-icon-btn:hover { opacity: 1; background: rgb(0 0 0 / 0.75); }
+.tile-icon-btn svg { width: 55%; height: 55%; }
+.tile.is-thumb .tile-icon-btn.focus-btn { display: none; }
+
+/* ------------------------------ Commanders ------------------------------ */
+
+.commanders { display: flex; align-items: flex-end; gap: 0.35rem; min-width: 0; }
+
+.commander-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem;
+    padding-right: 0.2rem;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.6);
+    color: #fff;
+    backdrop-filter: blur(4px);
+    min-width: 0;
+    cursor: pointer;
+}
+.commander-chip img {
+    width: clamp(1.6rem, 15cqmin, 4rem);
+    height: clamp(1.6rem, 15cqmin, 4rem);
+    border-radius: 9999px;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-warning) 80%, transparent);
+}
+.commander-chip .commander-name {
     display: none;
+    font-size: clamp(0.65rem, 3.8cqmin, 0.95rem);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 11rem;
+    padding-right: 0.5rem;
+}
+@container (min-width: 520px) {
+    .commander-chip .commander-name { display: block; }
 }
 
-/* Card Results */
+.commander-add {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35em 0.8em;
+    border-radius: 9999px;
+    border: 1.5px dashed rgb(255 255 255 / 0.6);
+    background: rgb(0 0 0 / 0.45);
+    color: #fff;
+    font-size: clamp(0.6rem, 4cqmin, 0.9rem);
+    font-weight: 600;
+    white-space: nowrap;
+}
+.commander-add:hover { background: rgb(0 0 0 / 0.7); }
+
+/* ------------------------------ Life counter ------------------------------ */
+
+.life {
+    position: relative;
+    display: flex;
+    align-items: center;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.65);
+    color: #fff;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.35);
+    flex-shrink: 0;
+}
+.life-btn {
+    display: grid;
+    place-items: center;
+    width: clamp(1.8rem, 14cqmin, 4.25rem);
+    height: clamp(1.8rem, 14cqmin, 4.25rem);
+    border-radius: 9999px;
+    font-size: clamp(1rem, 8cqmin, 2.25rem);
+    font-weight: 700;
+    line-height: 1;
+    touch-action: manipulation;
+    transition: background 0.1s;
+}
+.life-btn:hover { background: rgb(255 255 255 / 0.12); }
+.life-btn:active { background: rgb(255 255 255 / 0.25); }
+.life-value {
+    min-width: 2ch;
+    text-align: center;
+    font-size: clamp(1.1rem, 11cqmin, 3.25rem);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+.life.is-low .life-value { color: var(--color-warning); }
+.life.is-dead .life-value { color: var(--color-error); }
+
+/* Recent change ("-3") floating above the counter */
+.life-delta {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    translate: -50% -0.35rem;
+    padding: 0.1em 0.55em;
+    border-radius: 9999px;
+    font-size: clamp(0.75rem, 6cqmin, 1.5rem);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+.life-delta.show { opacity: 1; }
+.life-delta.up { background: var(--color-success); color: var(--color-success-content); }
+.life-delta.down { background: var(--color-error); color: var(--color-error-content); }
+
+.life-bump { animation: life-bump 0.25s ease; }
+@keyframes life-bump {
+    40% { transform: scale(1.25); }
+}
+
+/* Tiny tiles: only the number, no buttons */
+@container (max-height: 120px) {
+    .life-btn { display: none; }
+    .life { padding: 0.15rem 0.6rem; }
+    .commander-add { display: none; }
+}
+
+/* ============================== Dice & coin ============================== */
+
+.roll-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem 0.85rem;
+    border-radius: var(--radius-box, 1rem);
+    background: color-mix(in oklab, var(--color-base-100) 88%, transparent);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
+    border: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+    min-width: 9rem;
+}
+.roll-card .roll-caption {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+    white-space: nowrap;
+}
+.roll-card .roll-caption b { color: var(--color-base-content); }
+
+.die {
+    position: relative;
+    width: 7rem;
+    height: 7rem;
+    display: grid;
+    place-items: center;
+    color: var(--color-primary);
+}
+.die svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.die svg .face { fill: color-mix(in oklab, var(--color-primary) 22%, transparent); stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; }
+.die svg .edge { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.45; stroke-linejoin: round; }
+.die-value {
+    position: relative;
+    font-size: 2.4rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-base-content);
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+.die.d4 .die-value { top: 0.6rem; font-size: 2rem; }
+.die.is-max { color: var(--color-success); }
+.die.is-min { color: var(--color-error); }
+
+.coin {
+    width: 7rem;
+    height: 7rem;
+    perspective: 600px;
+}
+.coin-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+}
+.coin-face {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 9999px;
+    backface-visibility: hidden;
+    font-weight: 800;
+    font-size: 1.05rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-secondary-content);
+    background:
+        radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.35), transparent 55%),
+        var(--color-secondary);
+    box-shadow:
+        inset 0 0 0 5px color-mix(in oklab, var(--color-secondary-content) 25%, transparent),
+        inset 0 0 0 9px var(--color-secondary),
+        inset 0 0 0 10px color-mix(in oklab, var(--color-secondary-content) 30%, transparent);
+}
+.coin-face svg { width: 42%; height: 42%; margin-bottom: 0.15rem; }
+.coin-face > div { display: flex; flex-direction: column; align-items: center; }
+.coin-face.back { transform: rotateY(180deg); }
+
+.roll-result-text {
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    min-height: 1.5rem;
+}
+
+/* Dice picker (top bar dropdown) */
+.dice-pick {
+    height: auto;
+    padding-block: 0.6rem;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.dice-pick svg { width: 2.25rem; height: 2.25rem; }
+.dice-pick svg .face { fill: color-mix(in oklab, currentColor 12%, transparent); stroke: currentColor; stroke-width: 3; stroke-linejoin: round; }
+.dice-pick svg .edge { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.45; }
+
+/* ============================== Scanned cards ============================== */
+
 .card-result {
     animation: slideIn 0.3s ease-out;
     cursor: pointer;
     transition: transform 0.2s ease;
 }
-
 .card-result img {
-    max-width: 100%;
+    width: 100%;
     height: auto;
-    border-radius: 8px;
+    border-radius: 4.75% / 3.5%;
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
 }
-
-.card-result:hover {
-    transform: scale(1.02);
-}
+.card-result:hover { transform: scale(1.03); }
 
 @keyframes slideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-/* Scanned cards container - fixed height */
-#result {
-    height: calc(100vh - 200px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding-right: 0.25rem;
-}
+#result, #tableLog, #commanderResults, #searchResults { scrollbar-width: thin; }
 
-/* Custom scrollbar */
-#result::-webkit-scrollbar {
-    width: 4px;
-}
-
-#result::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-#result::-webkit-scrollbar-thumb {
-    background: hsl(var(--bc) / 0.2);
-    border-radius: 2px;
-}
-
-#result::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--bc) / 0.3);
-}
-
-/* Search Results Dropdown */
-#searchResults {
-    scrollbar-width: thin;
-}
-
-#searchResults::-webkit-scrollbar {
-    width: 6px;
-}
-
-#searchResults::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-#searchResults::-webkit-scrollbar-thumb {
-    background: hsl(var(--bc) / 0.3);
-    border-radius: 3px;
-}
-
-.search-result-item {
-    padding: 0.75rem 1rem;
+/* Commander picker results */
+.commander-option {
+    position: relative;
+    border-radius: 4.75% / 3.5%;
+    overflow: hidden;
     cursor: pointer;
-    transition: all 0.15s ease;
-    border-radius: 0.5rem;
-    margin: 0.25rem 0.5rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+.commander-option img { width: 100%; height: auto; display: block; }
+.commander-option:hover { transform: translateY(-2px); }
+.commander-option.selected { box-shadow: 0 0 0 4px var(--color-primary); }
 
-.search-result-item:hover {
-    background-color: hsl(var(--bc) / 0.08);
-}
-
-.search-result-item.selected {
-    background-color: hsl(var(--p) / 0.2);
-    font-weight: 500;
-}
-
-.search-result-item:first-child {
-    margin-top: 0.5rem;
-}
-
-.search-result-item:last-child {
-    margin-bottom: 0.5rem;
-}
-
-/* Card preview hover - enlarged with flip side */
+/* Card preview on hover - enlarged, with the back face for double-faced cards */
 .card-hover-preview {
     position: fixed;
     z-index: 9999;
     pointer-events: none;
     display: none;
 }
-
 .card-hover-preview.active {
     display: flex;
     gap: 1rem;
     animation: fadeIn 0.2s ease;
 }
-
 .card-hover-preview img {
-    width: 360px;
+    width: 320px;
     height: auto;
     border-radius: 14px;
-    box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+    box-shadow: 0 25px 60px rgb(0 0 0 / 0.6);
+}
+
+#cardModalImages img {
+    width: min(360px, 80vw);
+    max-height: 80dvh;
+    object-fit: contain;
+    border-radius: 16px;
+    box-shadow: 0 25px 60px rgb(0 0 0 / 0.6);
 }
 
 @keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
+
+/* Inputs and text inside dialogs stay selectable even though the table itself isn't */
+input, textarea { user-select: text; }
+
+@media (prefers-reduced-motion: reduce) {
+    .tile-ping, .life-bump, .card-result { animation: none; }
+}
+
+/* Small cameras centred, but still scrollable from the first one when there are many */
+#strip { justify-content: safe center; }
+
+/* The hidden attribute always wins over display utilities */
+[hidden] { display: none !important; }

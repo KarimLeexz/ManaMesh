@@ -1,0 +1,14 @@
+{
+  "name": "manamesh-frontend",
+  "private": true,
+  "description": "Builds the frontend stylesheet (Tailwind CSS + daisyUI) into frontend/app.css",
+  "scripts": {
+    "build": "tailwindcss -i frontend/src/app.css -o frontend/app.css --minify",
+    "watch": "tailwindcss -i frontend/src/app.css -o frontend/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "daisyui": "^5.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}

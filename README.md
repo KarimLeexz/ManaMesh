@@ -9,7 +9,12 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 - 📷 **Real-time Webcam Capture** - High-quality video feed (1920x1080)
 - 🔍 **Fast Card Recognition** - Card outline detection + perceptual hashing, ~10 ms per scan
 - 💾 **Lightweight Index** - A few MB covering every card artwork on Scryfall
-- 🎨 **Modern UI** - Built with DaisyUI and Tailwind CSS
+- 🎮 **Game table** - Spelltable-style: one big camera + small ones, or all cameras the same size, no scrolling
+- ❤️ **Life & commanders** - Every player has a life counter (starts at 40) and a commander, synced for everyone
+- 🎲 **Dice & coin** - d4, d6, d8, d10, d12, d20 and a coin flip, animated and shown to the whole table
+- 🔄 **New game** - Reset life, commanders or both for the whole table (starting life 20/30/40)
+- 🪞 **Camera mirroring** - Mirror / flip your own camera for everyone, or anyone's camera just for you
+- 🎨 **Modern UI** - Built with daisyUI 5 and Tailwind CSS 4
 - 🌐 **Scryfall Integration** - High-resolution card images on demand
 - 🌙 **Dark/Light Mode** - Toggle between themes
 
@@ -18,11 +23,11 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 **Backend:**
 - FastAPI (Python web framework)
 - OpenCV + NumPy (card outline detection, art hashing, index lookup)
-- Socket.IO (WebRTC signaling)
+- Socket.IO (WebRTC signaling and the shared table state)
 
 **Frontend:**
 - Vanilla JavaScript
-- DaisyUI + Tailwind CSS
+- daisyUI 5 + Tailwind CSS 4 (built with the Tailwind CLI)
 - WebRTC for camera access
 
 ## Setup Instructions
@@ -77,17 +82,39 @@ Or use uvicorn directly:
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Changing the frontend (optional)
+
+The page's stylesheet `frontend/app.css` is built from `frontend/src/app.css` (Tailwind CSS 4 +
+daisyUI 5 + `frontend/styles.css`) and committed, so running the server needs no Node.js.
+After changing HTML, JavaScript or CSS, rebuild it (needs [Node.js](https://nodejs.org) 20+):
+
+```powershell
+npm install        # once
+npm run build      # or: npm run watch  (rebuilds on every save)
+```
+
+Tailwind only generates the classes it finds written out in `frontend/index.html` and
+`frontend/*.js`. A class put together at runtime (like `alert-${type}`) must be listed in
+`frontend/src/app.css` under `@source inline(...)`, otherwise it has no styles.
+
 ### 5. Open in Browser
 
 Navigate to: **http://localhost:8000**
 
 ## Usage
 
-1. **Allow Camera Access** - When prompted, grant camera permissions
-2. **Point at Card** - Position a Magic card in front of your camera
-3. **Click the card** in the video - The app looks for a card where you clicked and identifies it
-4. **View Results** - High-res card image appears in the sidebar
-5. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
+1. **Join** - Enter your name, pick your camera and mirror / flip it until your cards read the right way round
+   (the preview shows exactly what the others see). Allow camera access when the browser asks
+2. **Layout** - *Focus* shows one camera big (tap a small one to swap), *Grid* shows everyone the same size
+3. **Life** - Tap − / + on any player's tile (hold to count faster). Everyone can change everyone's life,
+   so whoever deals the damage can count it
+4. **Commander** - Tap *Commander* on your tile to search for it (partner / background: up to two)
+5. **Dice & coin** - Top bar; the result pops up on every player's screen and lands in the *Log*
+6. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table
+7. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel
+8. **If it is not sure**, it offers up to 3 guesses over the video: tap the right one, or ignore them. Retrying the same spot rarely helps; use the guesses or the search box instead
+
+The ⋮ menu on a tile mirrors that camera just for you, or (on your own tile) changes what everybody sees.
 
 ### Tips for Best Results
 
@@ -109,7 +136,13 @@ ManaMesh/
 │   └── build_index.py       # Index builder (downloads from Scryfall)
 ├── frontend/
 │   ├── index.html           # Main UI
-│   └── app.js               # Frontend logic
+│   ├── app.js               # Wires the modules together
+│   ├── table-view.js        # Player tiles, layouts, life counters
+│   ├── game-tools.js        # Dice, coin, reset, log
+│   ├── commander-picker.js  # Commander search
+│   ├── camera-manager.js    # Join dialog, local camera
+│   ├── webrtc-manager.js    # Video connections + shared table state
+│   └── recognition-handler.js # Card scanning, scanned cards, search
 ├── requirements.txt         # Python dependencies
 ├── .env.example            # Environment template
 └── README.md               # This file
@@ -147,8 +180,8 @@ scans are too often rejected, raise it a little (each +6 or so trades noticeably
 ## Deployment
 
 Not set up yet; the planned target is a Hetzner server. The backend serves the frontend itself,
-so a single process on a single host is all that is needed. The only build artifact to ship is
-`card_index.npz` (a few MB).
+so a single process on a single host is all that is needed. The build artifacts to ship are
+`card_index.npz` (a few MB) and `frontend/app.css`, both committed.
 
 ## Future Enhancements
 

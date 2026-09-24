@@ -2,229 +2,294 @@
 <html lang="en" data-theme="dim">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>ManaMesh</title>
     <link rel="icon" href="logo_image.png">
-    
-    <!-- DaisyUI + Tailwind CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="styles.css">
-    
+
+    <!-- Tailwind CSS 4 + daisyUI 5 + our own styles, built from src/app.css (npm run build) -->
+    <link rel="stylesheet" href="app.css">
+
     <!-- Socket.IO Client -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    
+
     <!-- SimplePeer for WebRTC -->
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
 </head>
-<body class="bg-base-200">
-    <!-- Navbar -->
-    <div class="navbar bg-base-100 shadow-lg sticky top-0 z-50">
-        <div class="flex-1">
-            <a class="btn btn-ghost normal-case text-xl gap-2">
-                <img src="logo_image.png" alt="ManaMesh Icon" class="h-10 w-10 object-contain" />
-                <img src="logo_text.png" alt="ManaMesh" class="h-8 object-contain" />
-            </a>
-        </div>
-        
-        <!-- Center: Database Stats -->
-        <div class="flex-none mx-4">
-            <div class="badge badge-lg gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-                </svg>
-                <span id="dbStatus" class="text-xs">Loading...</span>
-                <span id="dbStats" class="text-xs opacity-70">•</span>
+<body class="h-dvh overflow-hidden flex flex-col bg-base-200 text-base-content select-none">
+
+    <!-- ============================== Top bar ============================== -->
+    <header class="navbar min-h-0 h-14 shrink-0 gap-1 sm:gap-2 bg-base-100 px-2 shadow-sm z-30">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
+            <img src="logo_image.png" alt="" class="h-9 w-9 object-contain" />
+            <img src="logo_text.png" alt="ManaMesh" class="h-6 object-contain max-sm:hidden" />
+            <div class="tooltip tooltip-bottom ml-1" id="scannerStatusTip" data-tip="Checking card scanner…">
+                <div class="badge badge-ghost gap-1.5 max-md:hidden">
+                    <span id="scannerStatusDot" class="status status-neutral"></span>
+                    <span id="scannerStatusText" class="text-xs">Scanner</span>
+                </div>
             </div>
         </div>
-        
-        <div class="flex-none">
-            <label class="swap swap-rotate btn btn-ghost btn-circle">
-                <!-- this hidden checkbox controls the state -->
+
+        <!-- Layout: one big camera or all cameras the same size -->
+        <div class="join" role="radiogroup" aria-label="Camera layout">
+            <input class="join-item btn btn-sm sm:btn-md" type="radio" name="layout" value="focus" aria-label="Focus" title="One big camera" />
+            <input class="join-item btn btn-sm sm:btn-md" type="radio" name="layout" value="grid" aria-label="Grid" title="All cameras the same size" />
+        </div>
+
+        <div class="flex items-center gap-1 sm:gap-2 flex-1 justify-end">
+            <!-- Dice -->
+            <details class="dropdown dropdown-end" id="diceDropdown">
+                <summary class="btn btn-primary btn-sm sm:btn-md gap-1.5" title="Roll a die">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><path d="M12 2v10m0 0 9-5m-9 5-9-5m9 5v10"/></svg>
+                    <span class="max-sm:hidden">Dice</span>
+                </summary>
+                <div class="dropdown-content z-50 mt-2 w-72 rounded-box bg-base-100 p-3 shadow-2xl border border-base-300">
+                    <div class="grid grid-cols-3 gap-2" id="diceButtons">
+                        <!-- Filled by game-tools.js -->
+                    </div>
+                </div>
+            </details>
+
+            <!-- Coin -->
+            <button class="btn btn-secondary btn-sm sm:btn-md gap-1.5" id="coinButton" title="Flip a coin">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="9"/><ellipse cx="12" cy="12" rx="5" ry="5" opacity=".6"/></svg>
+                <span class="max-sm:hidden">Coin</span>
+            </button>
+
+            <div class="divider divider-horizontal mx-0 max-sm:hidden"></div>
+
+            <!-- Reset -->
+            <button class="btn btn-ghost btn-sm sm:btn-md btn-square" id="resetButton" title="New game / reset">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+
+            <!-- Camera / name settings -->
+            <button class="btn btn-ghost btn-sm sm:btn-md btn-square" id="settingsButton" title="Name and camera">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            </button>
+
+            <!-- Scanned cards panel -->
+            <button class="btn btn-ghost btn-sm sm:btn-md btn-square" id="sidebarButton" title="Scanned cards">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
+            </button>
+
+            <!-- Theme -->
+            <label class="swap swap-rotate btn btn-ghost btn-sm sm:btn-md btn-square" title="Light / dark">
                 <input type="checkbox" class="theme-controller" value="fantasy" />
-                
-                <!-- moon icon (shown in dark mode by default) -->
-                <svg class="swap-off fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/>
-                </svg>
-                
-                <!-- sun icon (shown when switching to light mode) -->
-                <svg class="swap-on fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
-                </svg>
+                <svg class="swap-off h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/></svg>
+                <svg class="swap-on h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
             </label>
         </div>
-    </div>
+    </header>
 
-    <!-- Main Content -->
-    <div class="container mx-auto p-4">
-        <!-- Camera Setup Modal (shown before joining) -->
-        <dialog id="setupModal" class="modal modal-open">
-            <div class="modal-box max-w-2xl">
-                <h3 class="font-bold text-lg mb-4">Setup Your Camera</h3>
-                
-                <div class="space-y-4">
-                    <!-- Camera Preview -->
-                    <div class="relative bg-base-300 rounded-lg overflow-hidden">
-                        <video id="setupVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
-                    </div>
-                    
-                    <!-- Camera Selection -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Select Camera</span>
-                        </label>
-                        <select id="cameraSelect" class="select select-bordered w-full">
-                            <option disabled selected>Loading cameras...</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Username Input -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Your Name</span>
-                        </label>
-                        <input type="text" id="usernameInput" placeholder="Enter your name" class="input input-bordered w-full" value="Player" />
-                    </div>
-                </div>
-                
-                <div class="modal-action">
-                    <button class="btn btn-ghost" onclick="joinRoomWithoutCamera()">
-                        Skip Camera Setup
-                    </button>
-                    <button class="btn btn-primary btn-lg" onclick="joinRoom()">
-                        Join Room
-                    </button>
-                </div>
+    <!-- ============================== Table ============================== -->
+    <main class="flex-1 min-h-0 flex gap-2 p-2">
+        <section id="table" class="relative flex-1 min-w-0 min-h-0 flex flex-col gap-2" data-layout="grid">
+            <!-- Focus layout: the big camera. Grid layout: every camera. -->
+            <div id="stage" class="relative flex-1 min-h-0"></div>
+            <!-- Focus layout: everybody else, small -->
+            <div id="strip" class="shrink-0 flex gap-2 overflow-x-auto overflow-y-hidden"></div>
+
+            <div id="emptyTable" class="absolute inset-0 hidden flex-col items-center justify-center gap-3 text-base-content/50">
+                <span class="loading loading-dots loading-lg"></span>
+                <p>Connecting to the table…</p>
             </div>
-        </dialog>
 
-        <div class="flex flex-col gap-4 max-w-screen-2xl mx-auto">
-            
-            <!-- Main Grid: Camera + Players on Left, Scanned Cards on Right -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                
-                <!-- Left Side: Camera Feed + Players (10 columns) -->
-                <div class="lg:col-span-10 flex flex-col gap-4">
-                    
-                    <!-- Main Camera Feed -->
-                    <div class="card bg-base-100 shadow-xl">
-                        <div class="card-body p-4">
-                            <div class="relative bg-base-300 rounded-lg overflow-hidden cursor-crosshair group" id="mainFeedContainer">
-                                <video id="mainVideo" autoplay playsinline class="w-full rounded-lg" style="transform: scaleX(-1);"></video>
-                                <canvas id="clickCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
-                                
-                                <!-- Click indicator -->
-                                <div id="clickIndicator" class="absolute hidden">
-                                    <div class="w-12 h-12 border-4 border-primary rounded-full animate-ping"></div>
-                                </div>
-                                
-                                <!-- Player name overlay -->
-                                <div class="absolute top-2 left-2 badge badge-neutral">
-                                    <span id="mainPlayerName">Select a camera</span>
-                                </div>
-                                
-                                <!-- Three-dot menu button for main view -->
-                                <div id="mainCameraMenu" class="dropdown dropdown-end absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-50" style="display: none;">
-                                    <label tabindex="0" class="btn btn-sm btn-circle btn-neutral">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                                        </svg>
-                                    </label>
-                                    <ul tabindex="0" class="dropdown-content z-[1000] menu p-2 shadow bg-base-200 rounded-box w-52 text-sm" id="mainCameraMenuContent">
-                                        <!-- Menu items will be dynamically populated -->
-                                    </ul>
-                                </div>
-                            </div>
-                            
-                            <!-- Loading/Scanning indicator -->
-                            <div id="scanningIndicator" class="alert alert-info mt-2" style="display: none;">
-                                <span class="loading loading-spinner loading-sm"></span>
-                                <span>Scanning card...</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Players Section -->
-                    <div class="card bg-base-100 shadow-xl">
-                        <div class="card-body p-4">
-                            <div class="flex items-center justify-between mb-2">
-                                <h2 class="card-title text-base">Players</h2>
-                            </div>
-                            
-                            <!-- Camera Thumbnails (Horizontal) -->
-                            <div id="cameraList" class="flex gap-4 justify-start flex-wrap pb-2">
-                                <!-- Cameras will be added here dynamically -->
-                                <div class="text-center text-base-content/50 py-4 w-full" id="noCamerasMessage">
-                                    <p class="text-sm">No cameras active. Enable your camera to get started!</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            <!-- Dice rolls and coin flips appear here, over the cameras -->
+            <div id="rollLayer" class="pointer-events-none absolute inset-0 z-20 flex flex-wrap items-center justify-center content-center gap-4 p-4"></div>
+        </section>
+
+        <!-- Scanned cards + table log -->
+        <aside id="sidebar" class="w-72 shrink-0 flex flex-col gap-2 rounded-box bg-base-100 p-2 shadow-sm
+                                   max-lg:fixed max-lg:right-2 max-lg:top-16 max-lg:bottom-2 max-lg:z-40 max-lg:shadow-2xl">
+            <div role="tablist" class="tabs tabs-box tabs-sm shrink-0">
+                <button role="tab" class="tab tab-active flex-1" data-tab="cards">Cards</button>
+                <button role="tab" class="tab flex-1" data-tab="log">Log <span id="logBadge" class="badge badge-xs badge-primary ml-1 hidden"></span></button>
+            </div>
+
+            <div data-panel="cards" class="flex-1 min-h-0 flex flex-col gap-2">
+                <div class="relative shrink-0">
+                    <label class="input input-sm w-full">
+                        <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/></svg>
+                        <input type="search" id="cardSearch" placeholder="Search a card…" autocomplete="off" class="grow" />
+                    </label>
+                    <ul id="searchResults" class="menu menu-sm absolute w-full mt-1 bg-base-100 rounded-box shadow-xl border border-base-300 max-h-72 overflow-y-auto flex-nowrap z-50 hidden"></ul>
                 </div>
-            
-                <!-- Right Side: Scanned Cards (2 columns) -->
-                <div class="lg:col-span-2">
-                    <div class="card bg-base-100 shadow-xl h-full">
-                        <div class="card-body p-3">
-                            <h2 class="card-title text-sm mb-2">Scanned Cards</h2>
-                            
-                            <!-- Card Search Input -->
-                            <div class="relative mb-3">
-                                <input 
-                                    type="text" 
-                                    id="cardSearch" 
-                                    placeholder="Search cards..." 
-                                    class="input input-bordered input-sm w-full pr-8"
-                                    autocomplete="off"
-                                />
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 absolute right-3 top-2.5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                
-                                <!-- Search Results Dropdown -->
-                                <div id="searchResults" class="absolute w-full mt-1 bg-base-100 rounded-lg shadow-xl border border-base-300 max-h-64 overflow-y-auto z-50 hidden">
-                                    <!-- Results will be populated here -->
-                                </div>
-                            </div>
-                            
-                            <div id="result">
-                                <div class="text-center text-base-content/50 py-8">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                                    </svg>
-                                    <p class="text-xs">No cards scanned</p>
-                                    <p class="text-xs mt-1 opacity-70">Click a card to scan</p>
-                                </div>
-                            </div>
-                        </div>
+                <div id="result" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 auto-rows-min gap-2 pr-1">
+                    <div class="empty-hint col-span-2 flex flex-col items-center gap-2 py-10 text-center text-base-content/50">
+                        <svg class="h-10 w-10 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5" y="3" width="12" height="17" rx="2"/><path d="M9 21h8a2 2 0 0 0 2-2V7"/></svg>
+                        <p class="text-sm">No cards scanned yet</p>
+                        <p class="text-xs">Tap a card in a camera to identify it</p>
                     </div>
                 </div>
             </div>
 
-    <!-- Card hover preview container -->
-    <div id="cardHoverPreview" class="card-hover-preview"></div>
-        </div>
-    </div>
+            <div data-panel="log" class="flex-1 min-h-0 overflow-y-auto" hidden>
+                <ul id="tableLog" class="flex flex-col gap-1 text-sm"></ul>
+                <p id="logEmpty" class="py-10 text-center text-sm text-base-content/50">Rolls, flips and resets show up here</p>
+            </div>
 
-    <!-- Footer -->
-    <footer class="footer footer-center p-6 bg-base-100 text-base-content mt-8 border-t border-base-300">
-        <aside>
-            <p class="text-sm">
-                © 2025 <strong>Karim Graul</strong> - ManaMesh
-            </p>
-            <p class="text-xs opacity-70 mt-1">
-                Card data and images provided by 
-                <a href="https://scryfall.com" target="_blank" class="link link-hover font-semibold">Scryfall</a>
-            </p>
-            <p class="text-xs opacity-70 mt-1">
-                Magic: The Gathering is © Wizards of the Coast. 
-                Card images are property of Wizards of the Coast LLC.
+            <p class="shrink-0 text-[10px] leading-tight text-base-content/40 px-1">
+                Card data &amp; images: <a href="https://scryfall.com" target="_blank" rel="noopener" class="link">Scryfall</a>.
+                Magic: The Gathering © Wizards of the Coast.
             </p>
         </aside>
-    </footer>
+    </main>
+
+    <!-- Floating tile menu (one shared menu, so it is never clipped by a tile) -->
+    <ul id="tileMenu" class="menu fixed z-[60] w-64 rounded-box bg-base-100 p-2 shadow-2xl border border-base-300 hidden"></ul>
+
+    <!-- Hover preview of a scanned card (mouse only) -->
+    <div id="cardHoverPreview" class="card-hover-preview"></div>
+
+    <!-- Toasts -->
+    <div id="toasts" class="toast toast-end toast-bottom z-[70]"></div>
+
+    <!-- ============================== Join / settings ============================== -->
+    <dialog id="setupModal" class="modal">
+        <div class="modal-box w-11/12 max-w-4xl p-0 overflow-y-auto">
+            <div class="grid md:grid-cols-5">
+                <!-- Camera preview -->
+                <div class="md:col-span-3 bg-base-300 p-4 flex flex-col gap-3">
+                    <div class="relative aspect-video rounded-box overflow-hidden bg-black">
+                        <video id="setupVideo" autoplay playsinline muted class="h-full w-full object-contain"></video>
+                        <div id="setupNoCamera" class="absolute inset-0 hidden flex-col items-center justify-center gap-2 text-neutral-content/70 bg-neutral">
+                            <svg class="h-12 w-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M23 7 16 12l7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/><path d="m2 2 20 20"/></svg>
+                            <span id="setupNoCameraText" class="text-sm">No camera</span>
+                        </div>
+                        <!-- Quick orientation buttons right on the picture -->
+                        <div class="absolute bottom-2 right-2 flex gap-2">
+                            <button type="button" class="btn btn-circle btn-sm sm:btn-md bg-base-100/80 border-0" data-flip-button="flipH" title="Mirror left ↔ right">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7 3 12l5 5z"/><path d="m16 7 5 5-5 5"/></svg>
+                            </button>
+                            <button type="button" class="btn btn-circle btn-sm sm:btn-md bg-base-100/80 border-0" data-flip-button="flipV" title="Flip upside down ↕">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M7 8l5-5 5 5z"/><path d="m7 16 5 5 5-5"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-xs text-base-content/60">
+                        This is exactly what the other players will see. Mirror or flip the picture until your cards read the right way round.
+                    </p>
+                </div>
+
+                <!-- Name + camera -->
+                <form id="setupForm" class="md:col-span-2 p-5 flex flex-col gap-3" method="dialog">
+                    <div class="flex items-center gap-2">
+                        <img src="logo_image.png" alt="" class="h-10 w-10 object-contain" />
+                        <div>
+                            <h3 class="text-lg font-bold leading-tight" id="setupTitle">Join the table</h3>
+                            <p class="text-xs text-base-content/60" id="setupSubtitle">Name and camera, and you're in</p>
+                        </div>
+                    </div>
+
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Your name</legend>
+                        <input type="text" id="usernameInput" class="input w-full" maxlength="24" placeholder="e.g. Karim" required autocomplete="nickname" />
+                    </fieldset>
+
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Camera</legend>
+                        <select id="cameraSelect" class="select w-full">
+                            <option disabled selected>Looking for cameras…</option>
+                        </select>
+                    </fieldset>
+
+                    <fieldset class="fieldset rounded-box border border-base-300 p-3">
+                        <legend class="fieldset-legend">Picture</legend>
+                        <label class="label justify-between cursor-pointer text-sm text-base-content">
+                            Mirror (left ↔ right)
+                            <input type="checkbox" class="toggle toggle-primary" id="flipHInput" />
+                        </label>
+                        <label class="label justify-between cursor-pointer text-sm text-base-content">
+                            Upside down (↕)
+                            <input type="checkbox" class="toggle toggle-primary" id="flipVInput" />
+                        </label>
+                    </fieldset>
+
+                    <div class="mt-auto flex flex-col gap-2 pt-2">
+                        <button type="submit" class="btn btn-primary btn-lg w-full" id="joinButton">Join table</button>
+                        <button type="button" class="btn btn-ghost btn-sm w-full" id="joinWithoutCameraButton">Join without camera</button>
+                        <button type="button" class="btn btn-ghost btn-sm w-full hidden" id="setupCancelButton">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- ============================== Reset ============================== -->
+    <dialog id="resetModal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+            <h3 class="text-lg font-bold">Reset the table?</h3>
+            <p class="py-2 text-sm text-base-content/70">This applies to <b>every player</b> at the table. What should be reset?</p>
+
+            <fieldset class="fieldset">
+                <legend class="fieldset-legend">Starting life</legend>
+                <div class="join w-full" id="startingLifeChoice">
+                    <input class="join-item btn flex-1" type="radio" name="startingLife" value="20" aria-label="20" />
+                    <input class="join-item btn flex-1" type="radio" name="startingLife" value="30" aria-label="30" />
+                    <input class="join-item btn flex-1" type="radio" name="startingLife" value="40" aria-label="40" checked />
+                </div>
+            </fieldset>
+
+            <div class="mt-4 grid gap-2 sm:grid-cols-3">
+                <button class="btn btn-outline h-auto py-3 flex-col gap-1" data-reset="life">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.6 4.5c2.2 0 3.6 1.2 5.4 3.1 1.8-1.9 3.2-3.1 5.4-3.1 3.6 0 5.7 3.8 4.2 7.2C19.5 16.4 12 21 12 21z"/></svg>
+                    Life
+                </button>
+                <button class="btn btn-outline h-auto py-3 flex-col gap-1" data-reset="commanders">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>
+                    Commanders
+                </button>
+                <button class="btn btn-error h-auto py-3 flex-col gap-1" data-reset="all">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                    Everything
+                </button>
+            </div>
+
+            <div class="modal-action">
+                <form method="dialog"><button class="btn btn-ghost">Cancel</button></form>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- ============================== Commander picker ============================== -->
+    <dialog id="commanderModal" class="modal">
+        <div class="modal-box w-11/12 max-w-3xl h-[85dvh] flex flex-col gap-3">
+            <div class="flex items-center justify-between gap-2">
+                <h3 class="text-lg font-bold">Choose your commander</h3>
+                <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost">✕</button></form>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 min-h-12" id="commanderSelected"></div>
+
+            <label class="input w-full">
+                <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/></svg>
+                <input type="search" id="commanderSearch" class="grow" placeholder="Search a legendary creature…" autocomplete="off" />
+                <span class="loading loading-spinner loading-xs hidden" id="commanderLoading"></span>
+            </label>
+
+            <div id="commanderResults" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 gap-2 content-start"></div>
+
+            <div class="flex justify-between items-center gap-2">
+                <label class="label cursor-pointer gap-2 text-sm text-base-content">
+                    <input type="checkbox" class="toggle toggle-sm toggle-primary" id="commanderPartner" />
+                    Partner / background (two commanders)
+                </label>
+                <form method="dialog"><button class="btn btn-primary" value="save" id="commanderDone">Done</button></form>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- ============================== Card viewer ============================== -->
+    <dialog id="cardModal" class="modal">
+        <div class="modal-box w-auto max-w-[95vw] bg-transparent shadow-none p-0 flex flex-col items-center gap-3">
+            <div id="cardModalImages" class="flex gap-3 justify-center"></div>
+            <div id="cardModalActions" class="flex gap-2"></div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
 
     <!-- ES6 Module - All dependencies loaded via imports -->
     <script type="module" src="app.js"></script>
