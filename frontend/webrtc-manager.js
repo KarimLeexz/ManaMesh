@@ -247,20 +247,48 @@ function escape(text) {
     return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Outgoing video: high bitrate and resolution capped at 1080p so peers see card text clearly
-// without every player having to encode 4K for every other player
-const MAX_VIDEO_BITRATE = IS_MOBILE ? 4_000_000 : 8_000_000;   // bits per second
+// Outgoing video: resolution capped at 1080p so peers see card text clearly without every
+// player having to encode 4K for every other player.
+//
+// Our camera goes to every other player (and spectator) over its own connection, and each
+// connection's bandwidth control only looks after itself: with a fixed limit per connection,
+// three of them together fill a home connection's upload, packets queue up in the router,
+// and everything else on that line (games, voice chat) lags. So all outgoing video shares
+// one budget, split between the connections.
+const UPLOAD_BUDGETS = {                 // bits per second, all connections together
+    low: 3_000_000,
+    normal: IS_MOBILE ? 4_000_000 : 6_000_000,
+    high: 15_000_000
+};
+const MIN_PEER_BITRATE = 800_000;        // below this card text gets hard to read
+const MAX_PEER_BITRATE = { low: 3_000_000, normal: 4_000_000, high: 8_000_000 };
+const MAX_FRAMERATE = 24;                // cards lie still: frames are better spent on sharpness
 const MAX_SEND_WIDTH = 1920;
 
+/** This connection's share of the upload budget */
+function peerBitrate(state) {
+    const level = UPLOAD_BUDGETS[state.uploadLevel] ? state.uploadLevel : 'normal';
+    const connections = Math.max(1, [...state.peers.values()].filter(peer => !peer.destroyed).length);
+    return Math.round(Math.min(MAX_PEER_BITRATE[level], Math.max(MIN_PEER_BITRATE, UPLOAD_BUDGETS[level] / connections)));
+}
+
+/** Share the upload budget out again (a connection came or went, or the setting changed) */
+function retuneVideo(state) {
+    for (const peer of state.peers.values()) {
+        if (!peer.destroyed) tuneVideoSender(peer, state);
+    }
+}
+
 /**
- * Configure the outgoing video of a peer connection for detail: a high bitrate ceiling,
- * and when bandwidth or CPU runs short, drop frame rate rather than resolution.
- * (The browser's defaults favour smooth motion and quietly shrink the picture.)
- * Phones run short on CPU all the time, and dropping frames makes them stutter, so they
- * keep the browser's balance between sharpness and smoothness.
+ * Configure the outgoing video of a peer connection for detail: its share of the upload
+ * budget, at most MAX_FRAMERATE, and when bandwidth or CPU runs short, drop frame rate
+ * rather than resolution. (The browser's defaults favour smooth motion and quietly shrink
+ * the picture.) Phones run short on CPU all the time, and dropping frames makes them
+ * stutter, so they keep the browser's balance between sharpness and smoothness.
  * @param {SimplePeer} peer
+ * @param {Object} state - Application state object
  */
-async function tuneVideoSender(peer) {
+async function tuneVideoSender(peer, state) {
     const pc = peer._pc;   // SimplePeer keeps its RTCPeerConnection here
     if (!pc) return;
 
@@ -271,13 +299,15 @@ async function tuneVideoSender(peer) {
         if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
 
         const width = sender.track.getSettings().width || MAX_SEND_WIDTH;
-        params.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
+        const bitrate = peerBitrate(state);
+        params.encodings[0].maxBitrate = bitrate;
+        params.encodings[0].maxFramerate = MAX_FRAMERATE;
         params.encodings[0].scaleResolutionDownBy = Math.max(1, width / MAX_SEND_WIDTH);
         params.degradationPreference = IS_MOBILE ? 'balanced' : 'maintain-resolution';
 
         try {
             await sender.setParameters(params);
-            console.log(`[QUALITY] Sending ${Math.round(width / params.encodings[0].scaleResolutionDownBy)}px wide, up to ${MAX_VIDEO_BITRATE / 1e6} Mbps, ${params.degradationPreference}`);
+            console.log(`[QUALITY] Sending ${Math.round(width / params.encodings[0].scaleResolutionDownBy)}px wide, up to ${(bitrate / 1e6).toFixed(1)} Mbps, ${params.degradationPreference}`);
         } catch (err) {
             console.warn('[QUALITY] Could not tune video sender:', err);
         }
@@ -401,7 +431,7 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
         });
         // Cap the outgoing video as soon as it is negotiated, not only once connected:
         // otherwise the first seconds go out at full capture size (4K on some cameras)
-        if (signal.type === 'offer' || signal.type === 'answer') tuneVideoSender(peer);
+        if (signal.type === 'offer' || signal.type === 'answer') tuneVideoSender(peer, state);
     });
 
     peer.on('stream', remoteStream => {
@@ -418,7 +448,7 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
 
     peer.on('connect', () => {
         console.log(`✓ Peer connected: ${nameOf()}`);
-        tuneVideoSender(peer);
+        retuneVideo(state);   // one more connection: everyone's share gets smaller
     });
 
     peer.on('error', err => {
@@ -430,6 +460,7 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
     peer.on('close', () => {
         console.log(`Peer connection closed with ${userId}`);
         if (state.peers.get(userId) === peer) state.peers.delete(userId);
+        retuneVideo(state);   // one connection less: the others get its share
         // Only clear the video this connection delivered (a newer one may have replaced it)
         if (state.players.get(userId)?.streamPeer === peer) setPlayerStream(userId, null);
     });
@@ -442,6 +473,7 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
 export {
     initializeSocketIO,
     createPeerConnection,
+    retuneVideo,
     streamStats,
     keyOf
 };

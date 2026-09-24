@@ -80,6 +80,7 @@ async function openSetup(state, showToast) {
     document.getElementById('usernameInput').value = state.username || '';
     document.getElementById('flipHInput').checked = state.flipH;
     document.getElementById('flipVInput').checked = state.flipV;
+    document.getElementById('uploadSelect').value = state.uploadLevel;
     updatePreviewTransform();
 
     if (!modal.open) modal.showModal();

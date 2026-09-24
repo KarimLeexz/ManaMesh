@@ -268,6 +268,18 @@
                         </label>
                     </fieldset>
 
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Video upload</legend>
+                        <select id="uploadSelect" class="select w-full">
+                            <option value="low">Low · 3 Mbit/s</option>
+                            <option value="normal">Normal · 6 Mbit/s</option>
+                            <option value="high">High · 15 Mbit/s</option>
+                        </select>
+                        <p class="text-xs text-base-content/50">
+                            Your camera goes to every other player. If games or voice chat lag while you're at a table, choose Low.
+                        </p>
+                    </fieldset>
+
                     <div class="mt-auto flex flex-col gap-2 pt-2">
                         <button type="submit" class="btn btn-primary btn-lg w-full" id="joinButton">Join table</button>
                         <button type="button" class="btn btn-ghost btn-sm w-full" id="joinWithoutCameraButton">Join without camera</button>

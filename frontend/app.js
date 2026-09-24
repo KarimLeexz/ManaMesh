@@ -29,6 +29,7 @@ import {
 import {
     initializeSocketIO,
     createPeerConnection,
+    retuneVideo,
     streamStats
 } from './webrtc-manager.js';
 
@@ -113,6 +114,7 @@ const state = {
     username: load('username', ''),
     flipH: load('flipH', 'false') === 'true',   // how our camera is shown to everyone
     flipV: load('flipV', 'false') === 'true',
+    uploadLevel: load('upload', 'normal'),       // share of the upload for our camera: low / normal / high
     players: new Map(),   // 'local' or player id -> player (see table-view.js)
     peers: new Map(),     // player id -> SimplePeer instance
     cameraEnabled: false,
@@ -356,6 +358,7 @@ async function submitSetup(withCamera, role = 'player') {
     const username = document.getElementById('usernameInput').value.trim().slice(0, 24) || 'Player';
     const flipH = document.getElementById('flipHInput').checked;
     const flipV = document.getElementById('flipVInput').checked;
+    const uploadLevel = document.getElementById('uploadSelect').value;
     const stream = withCamera ? takePreviewStream() : null;
     inGame = true;
     closeSetup(state);
@@ -363,6 +366,11 @@ async function submitSetup(withCamera, role = 'player') {
     save('username', username);
     save('flipH', String(flipH));
     save('flipV', String(flipV));
+    save('upload', uploadLevel);
+    if (uploadLevel !== state.uploadLevel) {
+        state.uploadLevel = uploadLevel;
+        retuneVideo(state);
+    }
     if (stream) save('cameraId', stream.getVideoTracks()[0]?.getSettings().deviceId || '');
 
     const changes = {};
