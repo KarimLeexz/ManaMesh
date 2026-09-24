@@ -114,7 +114,7 @@ Navigate to: **http://localhost:8000**
 6. **Turns** - *Start turns* (or **Space**) shuffles a random turn order; after that **Space** or
    *Pass turn* passes it on, for whoever's turn it is. Passed by mistake? **Shift+Space** or ↶ takes
    it back, and the ⋮ menu on a tile gives the turn straight to that player. In *Focus* the player
-   whose turn it is is shown big
+   whose turn it is is shown big. Once there is a turn order, the cameras are arranged in it (seating order)
 7. **Reset** - The ↺ button: choose life, commanders or everything, for the whole table. Resetting
    life starts a new game with a newly shuffled turn order
 8. **Scan a card** - Tap a card in a big camera; the app identifies it and adds it to the *Cards* panel

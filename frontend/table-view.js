@@ -310,6 +310,20 @@ function clearOverlay(player) {
 /** Mark whose turn it is (state.turnId) on every tile */
 function updateTurnMarkers() {
     for (const player of state.players.values()) updateTile(player, { quiet: true });
+    renderLayout();   // the turn order is also the seating order
+}
+
+/**
+ * Players in seating order: the turn order once there is one (anyone not in it yet at
+ * the end), otherwise the order they joined in. It doesn't rotate with the turn, so
+ * every camera keeps its place.
+ */
+function seatingOrder() {
+    const players = [...state.players.values()];
+    const order = state.turn?.order || [];
+    if (!order.length) return players;
+    const seat = new Map(order.map((sid, i) => [sid === state.socket?.id ? 'local' : sid, i]));
+    return players.sort((a, b) => (seat.get(a.id) ?? order.length) - (seat.get(b.id) ?? order.length));
 }
 
 // ============================== Layout ==============================
@@ -349,7 +363,7 @@ function renderLayout() {
     const table = document.getElementById('table');
     const stage = document.getElementById('stage');
     const strip = document.getElementById('strip');
-    const players = [...state.players.values()];
+    const players = seatingOrder();
 
     table.dataset.layout = state.layout;
     const empty = document.getElementById('emptyTable');
@@ -367,9 +381,10 @@ function renderLayout() {
         strip.style.display = others.length ? 'flex' : 'none';
         strip.style.height = `${Math.round(Math.min(170, Math.max(80, table.clientHeight * 0.2)))}px`;
 
+        arrange(stage, players.filter(p => p.id === state.focusId));
+        arrange(strip, others);
         for (const player of players) {
             const isMain = player.id === state.focusId;
-            place(player, isMain ? stage : strip);
             player.tile.classList.toggle('is-main', isMain);
             player.tile.classList.toggle('is-thumb', !isMain);
             player.tile.style.width = '';
@@ -377,19 +392,22 @@ function renderLayout() {
         }
     } else {
         strip.style.display = 'none';
-        for (const player of players) {
-            place(player, stage);
-            player.tile.classList.remove('is-main', 'is-thumb');
-        }
+        arrange(stage, players);
+        for (const player of players) player.tile.classList.remove('is-main', 'is-thumb');
         fitGrid(stage, players.length);
     }
 }
 
-/** Move a tile into a container (only if needed: moving a video can pause it) */
-function place(player, container) {
-    if (player.tile.parentElement === container) return;
-    container.appendChild(player.tile);
-    if (player.stream) player.video.play().catch(() => {});
+/**
+ * Put these players' tiles into a container, in this order. Tiles already in the right
+ * spot aren't touched (moving a video can pause it, so moved ones are restarted).
+ */
+function arrange(container, players) {
+    players.forEach((player, i) => {
+        if (container.children[i] === player.tile) return;
+        container.insertBefore(player.tile, container.children[i] || null);
+        if (player.stream) player.video.play().catch(() => {});
+    });
 }
 
 /**

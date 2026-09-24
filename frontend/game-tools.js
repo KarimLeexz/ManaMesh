@@ -245,8 +245,8 @@ function setTurn(turn, info = {}) {
     if (!state.turnId) return;
     const changed = state.turnId !== before;
 
-    // Focus view follows the turn
-    if (changed && state.layout === 'focus') setFocus(state.turnId);
+    // The focus view follows the turn (also when switching to it later)
+    if (changed) setFocus(state.turnId);
     if (!info.action || (info.action === 'left' && !changed)) return;
 
     const who = `<b>${escapeHtml(nameOf(turn.current))}</b>`;
