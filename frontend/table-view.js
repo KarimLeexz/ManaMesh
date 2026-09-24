@@ -95,8 +95,7 @@ function upsertPlayer(id, data = {}, options = {}) {
             viewFlipH: false,      // an extra flip only this browser applies
             viewFlipV: false,
             stream: null,
-            streamPeer: null,
-            peer: null
+            track: null            // another player's camera, from the video server
         };
         state.players.set(id, player);
     }
@@ -110,6 +109,7 @@ function upsertPlayer(id, data = {}, options = {}) {
     if (isNew) {
         createTile(player);
         renderLayout();
+        hooks.tileCreated?.(id);   // their camera may already be there
     } else if (player.out !== wasOut && !options.quiet) {
         hooks.logEvent(player.out
             ? `${ICONS.skull.replace('<svg', '<svg class="inline h-4 w-4 align-[-3px]"')} <b>${escapeHtml(player.username)}</b> is out`
@@ -122,33 +122,44 @@ function upsertPlayer(id, data = {}, options = {}) {
 }
 
 /**
- * Show a player's camera, or the "no camera" placeholder when stream is null
+ * Show a player's camera, or the "no camera" placeholder
  * @param {string} id - Player id
- * @param {MediaStream|null} stream
- * @param {Object} peer - The peer connection the stream came from, if remote
+ * @param {MediaStream|Object|null} source - Our own camera stream, another player's camera
+ *   track from the video server (it attaches itself to the tile's video, which also tells it
+ *   how big the tile is, so it can fetch the right quality), or null
  */
-function setPlayerStream(id, stream, peer = null) {
+function setPlayerStream(id, source) {
     const player = state.players.get(id);
     if (!player) return;
-    player.stream = stream;
-    player.streamPeer = peer;
+    if (player.track && player.track !== source) player.track.detach(player.video);
+    player.track = null;
 
-    // Same stream object with a new camera track in it: reattach so the video picks it up
-    if (player.video.srcObject === stream) player.video.srcObject = null;
-    player.video.srcObject = stream;
+    const video = player.video;
+    if (source?.attach) {
+        player.track = source;
+        source.attach(video);
+        player.stream = video.srcObject;
+    } else {
+        // Same stream object with a new camera track in it: reattach so the video picks it up
+        if (video.srcObject === source) video.srcObject = null;
+        video.srcObject = source;
+        player.stream = source;
+    }
+    const showing = !!player.stream;
     // (inline styles: the tile CSS would win over Tailwind's .hidden)
-    player.video.style.display = stream ? '' : 'none';
-    player.placeholder.style.display = stream ? 'none' : '';
-    if (stream) player.video.play().catch(() => {});
+    video.style.display = showing ? '' : 'none';
+    player.placeholder.style.display = showing ? 'none' : '';
+    if (showing) video.play().catch(() => {});
     updateTile(player, { quiet: true });
 
-    if (!stream) clearOverlay(player);
+    if (!showing) clearOverlay(player);
     if (state.layout === 'focus' && !state.players.has(state.focusId)) renderLayout();
 }
 
 function removePlayer(id) {
     const player = state.players.get(id);
     if (!player) return;
+    player.track?.detach(player.video);
     player.tile.remove();
     state.players.delete(id);
     if (state.focusId === id) state.focusId = null;

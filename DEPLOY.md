@@ -1,7 +1,7 @@
 # Deploying to Hetzner
 
-Runs the app behind Caddy (automatic HTTPS) with an optional coturn TURN
-server for players behind strict NAT/CGNAT.
+Runs the app and the video server (LiveKit) behind Caddy (automatic HTTPS). Every camera
+goes up once to LiveKit, which forwards each viewer the quality they need.
 
 ## 1. Server & domain
 
@@ -23,14 +23,14 @@ server for players behind strict NAT/CGNAT.
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 3478/tcp
-ufw allow 3478/udp
-ufw allow 5349/tcp
-ufw allow 49152:65535/udp
+ufw allow 7881/tcp     # video (LiveKit): fallback when UDP is blocked
+ufw allow 7882/udp     # video (LiveKit): all cameras on one UDP port
 ufw --force enable
 ```
 
-(Skip the `3478`/`5349`/`49152:65535` rules if you're not using coturn.)
+Coming from the old coturn setup? Those rules (`3478`, `5349`, `49152:65535/udp`) aren't
+needed any more: `ufw delete allow 3478/tcp` etc. LiveKit's own ports replace them; since
+everyone connects to the server (not to each other), a TURN server is no longer necessary.
 
 ## 3. Get the code and data onto the server
 
@@ -50,24 +50,21 @@ cp .env.example .env
 # then edit: set DEBUG=False, leave the rest as-is unless you know you want to change it
 ```
 
-## 4. Fill in your domain/IP, and get the TURN config onto the server
+## 4. Domain and video server keys
 
-- `Caddyfile` (committed, not secret): `your-domain.example` → your real domain
-- `turnserver.conf` and `frontend/turn-config.js` both hold the **same TURN
-  password** and are both **gitignored** (same idea as `.env`) — they never go
-  through git, only scp:
+- `Caddyfile` (committed, not secret): `manamesh.app` → your real domain
+- `.env`: the video server's key and secret. The key is any name, the secret must be long
+  and random (the backend signs join tickets with it, LiveKit checks them):
   ```bash
-  cp turnserver.conf.example turnserver.conf              # fill in IP/domain/password
-  cp frontend/turn-config.js.example frontend/turn-config.js  # same domain/password
-  scp turnserver.conf root@<server-ip>:manamesh/turnserver.conf
-  scp frontend/turn-config.js root@<server-ip>:manamesh/frontend/turn-config.js
+  echo "LIVEKIT_API_KEY=manamesh" >> .env
+  echo "LIVEKIT_API_SECRET=$(openssl rand -base64 32 | tr -d '/+=')" >> .env
   ```
+  and remove the `LIVEKIT_URL=ws://localhost:7880` line copied from `.env.example`
+  (empty `LIVEKIT_URL` = the browser uses `https://<your domain>/livekit`, which Caddy
+  forwards to LiveKit).
 
-If you don't want to bother with a TURN server yet, you can skip coturn entirely:
-remove the `coturn` service from `docker-compose.yml` and don't create
-`turn-config.js` at all. Some friends on restrictive networks (mobile data,
-CGNAT) may then fail to establish a video connection — TURN fixes that. The
-app falls back to STUN-only automatically if `turn-config.js` is missing.
+`livekit.yaml` (committed, no secrets) needs no changes: LiveKit finds the server's public
+IP by itself (`use_external_ip`).
 
 ## 5. Start everything
 

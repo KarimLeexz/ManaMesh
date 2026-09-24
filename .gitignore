@@ -27,8 +27,6 @@ card_hashes_backup_*.pkl
 
 # Environment / secrets
 .env
-turnserver.conf
-frontend/turn-config.js
 
 # IDEs
 .vscode/

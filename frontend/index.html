@@ -11,11 +11,11 @@
     <!-- Tailwind CSS 4 + daisyUI 5 + our own styles, built from src/app.css (npm run build) -->
     <link rel="stylesheet" href="app.css">
 
-    <!-- Socket.IO Client -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
-    <!-- SimplePeer for WebRTC -->
-    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <!-- Served from here, not from a CDN: no visitor data goes to third parties -->
+    <!-- Socket.IO client (table state) -->
+    <script src="vendor/socket.io.min.js"></script>
+    <!-- LiveKit client (cameras, through the video server) -->
+    <script src="vendor/livekit-client.umd.js"></script>
 </head>
 <body class="h-dvh overflow-hidden flex flex-col bg-base-200 text-base-content select-none">
 
@@ -271,12 +271,12 @@
                     <fieldset class="fieldset">
                         <legend class="fieldset-legend">Video upload</legend>
                         <select id="uploadSelect" class="select w-full">
-                            <option value="low">Low · 3 Mbit/s</option>
-                            <option value="normal">Normal · 6 Mbit/s</option>
-                            <option value="high">High · 15 Mbit/s</option>
+                            <option value="low">Low · about 1.5 Mbit/s</option>
+                            <option value="normal">Normal · about 3 Mbit/s</option>
+                            <option value="high">High · about 6 Mbit/s</option>
                         </select>
                         <p class="text-xs text-base-content/50">
-                            Your camera goes to every other player. If games or voice chat lag while you're at a table, choose Low.
+                            Your camera is sent once, however many people watch. If games or voice chat lag while you're at a table, choose Low.
                         </p>
                     </fieldset>
 
@@ -377,11 +377,6 @@
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
-
-    <!-- Optional self-hosted TURN server config, sets window.MANAMESH_TURN if present.
-         Not committed to git (see turn-config.js.example) since it holds a credential;
-         missing on a plain dev setup is fine, the app just falls back to STUN-only. -->
-    <script src="turn-config.js"></script>
 
     <!-- ES6 Module - All dependencies loaded via imports -->
     <script type="module" src="app.js"></script>

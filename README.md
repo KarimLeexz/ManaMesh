@@ -31,7 +31,8 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 **Backend:**
 - FastAPI (Python web framework)
 - OpenCV + NumPy (card outline detection, art hashing, index lookup)
-- Socket.IO (WebRTC signaling and the shared table state)
+- Socket.IO (the shared table state)
+- LiveKit (video server: every camera is sent once, in three qualities, and each viewer gets the one that fits)
 
 **Frontend:**
 - Vanilla JavaScript
@@ -78,7 +79,18 @@ copy .env.example .env
 
 Edit `.env` if you want to customize settings.
 
-### 4. Start the Server
+### 4. Start the Video Server (LiveKit)
+
+The cameras go through [LiveKit](https://livekit.io), an open-source video server. For local
+development run it in dev mode (key `devkey`, secret `secret`, as in `.env.example`):
+
+```powershell
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev --bind 0.0.0.0
+```
+
+(or download `livekit-server` from its GitHub releases and run `livekit-server --dev`).
+
+### 5. Start the Server
 
 ```powershell
 python backend/main.py
@@ -87,7 +99,7 @@ python backend/main.py
 Or use uvicorn directly:
 
 ```powershell
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.main:socket_app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Changing the frontend (optional)
@@ -105,7 +117,7 @@ Tailwind only generates the classes it finds written out in `frontend/index.html
 `frontend/*.js`. A class put together at runtime (like `alert-${type}`) must be listed in
 `frontend/src/app.css` under `@source inline(...)`, otherwise it has no styles.
 
-### 5. Open in Browser
+### 6. Open in Browser
 
 Navigate to: **http://localhost:8000**
 
@@ -171,7 +183,9 @@ ManaMesh/
 │   ├── counters.js          # Counters, commander damage, monarch / initiative
 │   ├── chat.js              # Table chat
 │   ├── camera-manager.js    # Join dialog, local camera
-│   ├── webrtc-manager.js    # Video connections + shared table state
+│   ├── media.js             # Cameras through the video server (LiveKit)
+│   ├── table-socket.js      # Shared table state (Socket.IO)
+│   ├── vendor/              # Socket.IO + LiveKit browser libraries, served from here
 │   └── recognition-handler.js # Card scanning, scanned cards, search
 ├── requirements.txt         # Python dependencies
 ├── .env.example            # Environment template
@@ -213,9 +227,9 @@ scans are too often rejected, raise it a little (each +6 or so trades noticeably
 
 ## Deployment
 
-Not set up yet; the planned target is a Hetzner server. The backend serves the frontend itself,
-so a single process on a single host is all that is needed. The build artifacts to ship are
-`card_index.npz` (a few MB) and `frontend/app.css`, both committed.
+See [DEPLOY.md](DEPLOY.md): Docker Compose on one server with the app, the video server
+(LiveKit) and Caddy (HTTPS). The build artifacts to ship are `card_index.npz` (a few MB) and
+`frontend/app.css`, both committed.
 
 ## Future Enhancements
 

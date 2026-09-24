@@ -4,7 +4,8 @@
  *
  * This is the main entry point that coordinates all modules:
  * - camera-manager.js: Join / settings dialog, local camera stream
- * - webrtc-manager.js: WebRTC peer connections, signaling and shared table state
+ * - table-socket.js: Socket.IO connection, the shared table state
+ * - media.js: The cameras, through the video server (LiveKit)
  * - table-view.js: Player tiles (camera, life, commanders), layouts, toasts
  * - game-tools.js: Dice, coin, reset, table log, side panel
  * - commander-picker.js: Choosing a commander
@@ -26,12 +27,16 @@ import {
     disableCamera
 } from './camera-manager.js';
 
+import { initializeSocketIO } from './table-socket.js';
 import {
-    initializeSocketIO,
-    createPeerConnection,
-    retuneVideo,
-    streamStats
-} from './webrtc-manager.js';
+    initMedia,
+    connectMedia,
+    syncTracks,
+    publishCamera,
+    unpublishCamera,
+    setUploadLevel,
+    mediaStats
+} from './media.js';
 
 import {
     initTableView,
@@ -116,7 +121,6 @@ const state = {
     flipV: load('flipV', 'false') === 'true',
     uploadLevel: load('upload', 'normal'),       // share of the upload for our camera: low / normal / high
     players: new Map(),   // 'local' or player id -> player (see table-view.js)
-    peers: new Map(),     // player id -> SimplePeer instance
     cameraEnabled: false,
     hasJoinedRoom: false,
     layout: load('layout', 'grid') === 'focus' ? 'focus' : 'grid',
@@ -144,7 +148,9 @@ const handlers = {
     tableClosed,
     setSpectators,
     roleChanged,
-    createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
+    connectMedia,
+    publishCamera: (stream) => publishCamera(stream),
+    unpublishCamera
 };
 
 /**
@@ -244,6 +250,7 @@ const tileHooks = {
     logEvent,
     openCounters,
     playerUpdated: (id) => refreshCounters(id),
+    tileCreated: () => syncTracks(),
     setOwnFlip(key, value) {
         state[key] = value;
         save(key, String(value));
@@ -259,6 +266,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadTableInfo();
     initializeTheme();
     initTableView(state, tileHooks);
+    initMedia(state, { setPlayerStream, showToast });
     initGameTools(state, { showToast, upsertPlayer });
     initChat(state);
     initCounters(state, {
@@ -369,7 +377,7 @@ async function submitSetup(withCamera, role = 'player') {
     save('upload', uploadLevel);
     if (uploadLevel !== state.uploadLevel) {
         state.uploadLevel = uploadLevel;
-        retuneVideo(state);
+        setUploadLevel();
     }
     if (stream) save('cameraId', stream.getVideoTracks()[0]?.getSettings().deviceId || '');
 
@@ -396,5 +404,5 @@ async function submitSetup(withCamera, role = 'player') {
     else if (!withCamera) disableCamera(state, handlers);
 }
 
-// Handy in the browser console: `await streamStats()`
-window.streamStats = () => streamStats(state);
+// Handy in the browser console: `streamStats()`
+window.streamStats = () => mediaStats();

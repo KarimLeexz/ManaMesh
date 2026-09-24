@@ -18,16 +18,16 @@ const IS_MOBILE = navigator.userAgentData?.mobile
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));   // iPadOS
 
 /**
- * Ask for the best picture the camera can give. "ideal" values are preferences: the
- * browser picks the closest mode the camera supports (a 1080p camera simply gives 1080p).
- * Card text is small, so resolution matters far more than frame rate here. Phones stop
- * at 1080p: that is all that gets sent anyway, and capturing 4K costs them smoothness.
+ * Ask the camera for 1080p. "ideal" values are preferences: the browser picks the closest
+ * mode the camera supports. Card text is small, so resolution matters far more than frame
+ * rate here; 1080p is also exactly the sharpest version sent to the table (media.js), so
+ * nothing is captured only to be thrown away (4K would cost CPU, on phones smoothness too).
  */
 function videoConstraints(deviceId) {
     return {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        width: { ideal: IS_MOBILE ? 1920 : 3840 },
-        height: { ideal: IS_MOBILE ? 1080 : 2160 },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
         frameRate: { ideal: 30 }
     };
 }
@@ -247,32 +247,25 @@ function updatePreviewTransform() {
 // ============================== Live camera ==============================
 
 /**
- * Make a stream the live camera: shown on our tile and sent to every other player.
- * If a camera is live already, its track is swapped in place in every connection (no
- * reconnect); otherwise the connections are rebuilt so they carry video.
+ * Make a stream the live camera: shown on our tile and sent to the table. If a camera is
+ * live already, its track is swapped in place (the others don't notice a thing).
  * @param {Object} state - Application state object
  * @param {MediaStream} stream
- * @param {Object} handlers - { setPlayerStream, createPeerConnection, showToast }
+ * @param {Object} handlers - { setPlayerStream, publishCamera, showToast }
  */
-async function useStream(state, stream, { setPlayerStream, createPeerConnection, showToast }) {
+async function useStream(state, stream, { setPlayerStream, publishCamera, showToast }) {
     if (stream === state.localStream) return;
     const quality = describeAndTuneStream(stream);
     const oldStream = state.localStream;
     state.selectedDeviceId = deviceOf(stream) || state.selectedDeviceId;
 
     if (state.cameraEnabled && oldStream) {
+        // Keep our stream object, just with the new camera's track in it
         const oldTrack = oldStream.getVideoTracks()[0];
         const newTrack = stream.getVideoTracks()[0];
-        for (const peer of state.peers.values()) {
-            try {
-                if (!peer.destroyed) peer.replaceTrack(oldTrack, newTrack, oldStream);
-            } catch (err) {
-                console.warn('Could not swap camera in a connection:', err);
-            }
-        }
-        // Keep the stream object the connections know about, just with the new track in it
         oldStream.removeTrack(oldTrack);
         oldStream.addTrack(newTrack);
+        await publishCamera(oldStream);   // swaps the track being sent
         oldTrack.stop();
         stream.getTracks().filter(t => t !== newTrack).forEach(t => t.stop());
         setPlayerStream('local', oldStream);
@@ -285,22 +278,13 @@ async function useStream(state, stream, { setPlayerStream, createPeerConnection,
     state.cameraEnabled = true;
     setPlayerStream('local', stream);
     console.log(`✓ Local camera enabled (${quality})`);
-
-    if (state.socket?.connected) {
-        // Peers throw away their connection to us and wait for our new one, which carries video
-        state.socket.emit('camera-status-changed', { enabled: true });
-        for (const [userId, oldPeer] of [...state.peers.entries()]) {
-            oldPeer.destroy();
-            state.peers.delete(userId);
-            createPeerConnection(userId, true);
-        }
-    }
+    await publishCamera(stream);
 }
 
 /**
  * Turn the local camera on again (with the last chosen camera)
  * @param {Object} state - Application state object
- * @param {Object} handlers - { setPlayerStream, createPeerConnection, showToast }
+ * @param {Object} handlers - { setPlayerStream, publishCamera, showToast }
  */
 async function enableCamera(state, handlers) {
     if (state.cameraEnabled && state.localStream) return;
@@ -324,18 +308,17 @@ async function enableCamera(state, handlers) {
 /**
  * Turn the local camera off
  * @param {Object} state - Application state object
- * @param {Object} handlers - { setPlayerStream, showToast }
+ * @param {Object} handlers - { setPlayerStream, unpublishCamera, showToast }
  */
-function disableCamera(state, { setPlayerStream, showToast }) {
+async function disableCamera(state, { setPlayerStream, unpublishCamera, showToast }) {
     if (!state.localStream || !state.cameraEnabled) return;
 
-    stopStream(state.localStream);
+    const stream = state.localStream;
     state.localStream = null;
     state.cameraEnabled = false;
     setPlayerStream('local', null);
-
-    // Peers show our placeholder; the old connections simply carry no video any more
-    state.socket?.emit('camera-status-changed', { enabled: false });
+    await unpublishCamera();   // the others see our placeholder
+    stopStream(stream);
     showToast('Camera off', 'info');
 }
 

@@ -67,7 +67,19 @@ python backend/build_index.py
 copy .env.example .env
 ```
 
-## Step 6: Start the Server
+## Step 6: Start the Video Server
+
+The cameras go through LiveKit. With Docker Desktop installed:
+
+```powershell
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev --bind 0.0.0.0
+```
+
+Without Docker: download `livekit_..._windows_amd64.zip` from
+https://github.com/livekit/livekit/releases, unpack it and run `.\livekit-server.exe --dev`.
+Keep it running in its own window.
+
+## Step 6b: Start the Server
 
 ```powershell
 python backend/main.py
@@ -76,7 +88,7 @@ python backend/main.py
 Or:
 
 ```powershell
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.main:socket_app --reload --host 0.0.0.0 --port 8000
 ```
 
 Only if you change the frontend (HTML/JS/CSS): rebuild the stylesheet with Node.js,
@@ -112,7 +124,7 @@ Make sure you're in the activated virtual environment (you should see `(.venv)` 
 ### Port 8000 already in use
 ```powershell
 # Use a different port
-uvicorn backend.main:app --reload --port 8080
+uvicorn backend.main:socket_app --reload --port 8080
 ```
 
 ---

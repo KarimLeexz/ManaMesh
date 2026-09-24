@@ -3,31 +3,34 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"   # only Caddy (on this machine) talks to it
     volumes:
       - ./scans:/app/scans
+
+  # The video server: every camera goes up once to it, it forwards each viewer what they need
+  livekit:
+    image: livekit/livekit-server:v1.13
+    restart: unless-stopped
+    network_mode: host          # media goes straight to the server's public IP (UDP 7882, TCP 7881)
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      # "key: secret", from LIVEKIT_API_KEY / LIVEKIT_API_SECRET in .env (the backend signs tokens with them)
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
 
   caddy:
     image: caddy:2
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host          # reaches the app and LiveKit on localhost
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - app
-
-  coturn:
-    image: coturn/coturn:latest
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command: ["-c", "/etc/coturn/turnserver.conf"]
+      - livekit
 
 volumes:
   caddy_data:

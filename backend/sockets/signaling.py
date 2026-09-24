@@ -1,6 +1,6 @@
 """
-WebRTC Signaling and Table State
-Socket.IO event handlers for WebRTC peer-to-peer connections, plus the shared game tables:
+Table State
+Socket.IO event handlers for the shared game tables:
 every player's life total, counters, commander damage, commanders and camera orientation,
 turns, dice rolls, resets and chat.
 
@@ -24,6 +24,13 @@ import secrets
 import time
 import socketio
 from typing import Dict, Any, List, Optional, Tuple
+
+try:
+    from backend.config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+    from backend.services.media_token import media_token
+except ImportError:
+    from config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+    from services.media_token import media_token
 
 
 DEFAULT_STARTING_LIFE = 40
@@ -435,30 +442,23 @@ def register_socket_handlers(sio: socketio.AsyncServer):
             'rejoined': rejoined,
         }, skip_sid=sid)
 
-    @sio.event
-    async def signal(sid, data):
-        """Forward WebRTC signaling messages between peers at the same table."""
+    @sio.on('media-token')
+    async def handle_media_token(sid, data=None):
+        """
+        A ticket to the table's video room (LiveKit), for whoever sits at the table on this
+        connection: players may send their camera, spectators only watch. The answer goes
+        back as the event's acknowledgement.
+        """
         room, player = lookup(sid)
-        if not room or not isinstance(data, dict):
-            return
-        target = room.players.get(str(data.get('to') or ''))
-        if target and target['sid']:
-            await sio.emit('signal', {
-                'from': player['pid'],
-                'signal': data.get('signal')
-            }, to=target['sid'])
-
-    @sio.on('camera-status-changed')
-    async def handle_camera_status_changed(sid, data):
-        """Handle camera enable/disable notifications."""
-        room, player = lookup(sid)
-        if not room or not isinstance(data, dict):
-            return
-        await to_table(room, 'camera-status-changed', {
-            'userId': player['pid'],
-            'enabled': bool(data.get('enabled')),
-            'username': player['username'],
-        }, skip_sid=sid)
+        if not room:
+            return {'error': 'Join a table first.'}
+        if not (LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
+            return {'error': 'The video server is not set up (LIVEKIT_API_KEY / LIVEKIT_API_SECRET).'}
+        return {
+            'url': LIVEKIT_URL or None,   # None: the same domain, at /livekit
+            'token': media_token(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, room.id, player['pid'],
+                                 player['username'], can_publish=player['role'] == 'player'),
+        }
 
     @sio.on('player-update')
     async def handle_player_update(sid, data):
