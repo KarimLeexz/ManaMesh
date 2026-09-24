@@ -79,6 +79,9 @@ Or:
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Only if you change the frontend (HTML/JS/CSS): rebuild the stylesheet with Node.js,
+see "Changing the frontend" in README.md (`npm install`, then `npm run build`).
+
 ## Step 7: Open in Browser
 
 Navigate to: **http://localhost:8000**

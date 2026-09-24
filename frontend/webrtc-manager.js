@@ -1,128 +1,165 @@
 /**
  * WebRTC Manager Module
- * Handles Socket.IO connections, WebRTC peer connections, and signaling
+ * Handles Socket.IO connections, WebRTC peer connections, signaling, and the shared
+ * table state the server keeps (life totals, commanders, orientation, rolls, resets).
  */
+
+/**
+ * The table knows this browser as 'local'; the server knows it by its socket id
+ */
+function keyOf(userId, state) {
+    return userId === state.socket?.id ? 'local' : userId;
+}
 
 /**
  * Initialize Socket.IO connection and set up event handlers
  * @param {string} API_URL - Server API URL
  * @param {Object} state - Application state object
- * @param {Function} createPeerConnection - Function to create peer connection
- * @param {Function} addCamera - Function to add camera to UI
- * @param {Function} removeCamera - Function to remove camera from UI
- * @param {Function} showToast - Toast notification function
+ * @param {Object} handlers - { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection,
+ *                              showToast, logEvent, showRoll }
  */
-function initializeSocketIO(API_URL, state, { createPeerConnection, addCamera, removeCamera, showToast }) {
+function initializeSocketIO(API_URL, state, handlers) {
+    const { upsertPlayer, setPlayerStream, removePlayer, createPeerConnection, showToast, logEvent, showRoll } = handlers;
     console.log('Connecting to Socket.IO server...');
-    
+
     state.socket = io(API_URL, {
         transports: ['websocket', 'polling']
     });
-    
+
     state.socket.on('connect', () => {
         console.log('✓ Connected to signaling server');
-        
-        // Join the room
-        state.socket.emit('join', { username: state.username });
+
+        // Join the room. After a dropped connection our life total and commanders come
+        // along, so the server carries on where it was.
+        const me = state.players.get('local');
+        state.socket.emit('join', {
+            username: state.username,
+            flipH: state.flipH,
+            flipV: state.flipV,
+            ...(state.hasJoinedRoom && me ? { hp: me.hp, commanders: me.commanders } : {})
+        });
         state.hasJoinedRoom = true;
     });
-    
-    state.socket.on('existing-users', ({ users }) => {
+
+    state.socket.on('existing-users', ({ users, you, startingLife }) => {
         console.log(`Found ${users.length} existing users:`, users);
-        
+        state.startingLife = startingLife;
+        upsertPlayer('local', you, { quiet: true });
+
         // Create peer connections to existing users
         users.forEach(user => {
-            createPeerConnection(user.userId, user.username, true);
+            upsertPlayer(user.userId, user, { quiet: true });
+            createPeerConnection(user.userId, true);
         });
     });
-    
-    state.socket.on('user-joined', ({ userId, username }) => {
-        console.log(`New user joined: ${username} (${userId})`);
-        showToast(`${username} joined the room`, 'info');
-        
-        // Store their info - peer will be created when we receive their signal
-        state.cameras.set(userId, { username, stream: null, element: null });
-        
-        // Add placeholder camera for the new user
-        addCamera(userId, null, username, false);
+
+    state.socket.on('user-joined', (user) => {
+        console.log(`New user joined: ${user.username} (${user.userId})`);
+        showToast(`${user.username} joined the table`, 'info');
+        logEvent(`<b>${escape(user.username)}</b> joined`);
+
+        // Placeholder tile until their video arrives; the peer is created on their signal
+        upsertPlayer(user.userId, user, { quiet: true });
     });
-    
+
     state.socket.on('user-left', ({ userId }) => {
         console.log(`User left: ${userId}`);
-        
+
         // Clean up peer connection
         const peer = state.peers.get(userId);
         if (peer) {
             peer.destroy();
             state.peers.delete(userId);
         }
-        
-        // Remove camera
-        removeCamera(userId);
-        
-        const camera = state.cameras.get(userId);
-        if (camera) {
-            showToast(`${camera.username} left the room`, 'info');
+
+        const player = state.players.get(userId);
+        if (player) {
+            showToast(`${player.username} left the table`, 'info');
+            logEvent(`<b>${escape(player.username)}</b> left`);
         }
+        removePlayer(userId);
     });
-    
+
     state.socket.on('signal', ({ from, signal }) => {
         console.log(`Received signal from ${from}`, signal.type);
-        
+
         let peer = state.peers.get(from);
-        
+
         // If we don't have a peer yet, create one (they initiated)
-        if (!peer) {
+        if (!peer || peer.destroyed) {
             console.log(`Creating new peer connection for incoming signal from ${from}`);
-            const camera = state.cameras.get(from);
-            const username = camera ? camera.username : 'Unknown';
-            peer = createPeerConnection(from, username, false);
-        } else if (signal.type === 'offer' && peer && !peer.destroyed) {
+            peer = createPeerConnection(from, false);
+        } else if (signal.type === 'offer') {
             // Ignore duplicate offers if peer already exists and is connecting
             console.warn(`Ignoring duplicate offer from ${from} - peer already exists`);
             return;
         }
-        
+
         try {
-            // Check if peer is destroyed before signaling
-            if (peer.destroyed) {
-                console.warn(`Peer ${from} is destroyed, ignoring signal`);
-                return;
-            }
-            // Handle the signal
             peer.signal(signal);
         } catch (err) {
             console.error(`Error handling signal from ${from}:`, err);
         }
     });
-    
+
     state.socket.on('disconnect', () => {
         console.log('✗ Disconnected from signaling server');
-        showToast('Disconnected from server', 'warning');
+        showToast('Lost the connection to the table, reconnecting…', 'warning');
+
+        // Everyone gets a new id when we're back, so start from a clean table
+        for (const peer of state.peers.values()) peer.destroy();
+        state.peers.clear();
+        for (const id of [...state.players.keys()]) {
+            if (id !== 'local') removePlayer(id);
+        }
     });
-    
-    state.socket.on('camera-status-changed', ({ userId, enabled, username }) => {
-        console.log('[CAMERA STATUS] Received camera-status-changed event:', { userId, enabled, username });
-        
+
+    state.socket.on('camera-status-changed', ({ userId, enabled }) => {
+        console.log('[CAMERA STATUS] Received camera-status-changed event:', { userId, enabled });
+
         if (enabled) {
             // They enabled camera - they will recreate peer connection as initiator
             // We should destroy our old peer and wait for their new offer
             const existingPeer = state.peers.get(userId);
             if (existingPeer) {
-                console.log(`[CAMERA STATUS] Destroying old peer for ${username} - waiting for new connection with camera`);
                 existingPeer.destroy();
                 state.peers.delete(userId);
             }
-            // Show placeholder temporarily until stream arrives
-            removeCamera(userId);
-            addCamera(userId, null, username, false);
-        } else {
-            // They disabled camera - just show placeholder
-            console.log(`[CAMERA STATUS] ${username} disabled camera - showing placeholder`);
-            removeCamera(userId);
-            addCamera(userId, null, username, false);
+        }
+        // Placeholder until (if) the new video arrives
+        setPlayerStream(userId, null);
+    });
+
+    // Someone's life, commanders, name or orientation changed (possibly our own)
+    state.socket.on('player-updated', (player) => {
+        const id = keyOf(player.userId, state);
+        const before = state.players.get(id);
+        if (!before) return;
+        const oldCommanders = before.commanders.map(c => c.name).join(' & ');
+        upsertPlayer(id, player);
+
+        const newCommanders = player.commanders.map(c => c.name).join(' & ');
+        if (newCommanders && newCommanders !== oldCommanders) {
+            logEvent(`<b>${escape(player.username)}</b> plays <b>${escape(newCommanders)}</b>`);
         }
     });
+
+    state.socket.on('table-reset', ({ what, by, startingLife, players }) => {
+        state.startingLife = startingLife;
+        for (const player of players) upsertPlayer(keyOf(player.userId, state), player, { quiet: true });
+
+        const label = { life: `life (${startingLife})`, commanders: 'commanders', all: 'everything' }[what];
+        showToast(`${by} reset ${label}`, 'info');
+        logEvent(`<b>${escape(by)}</b> reset ${label}`);
+    });
+
+    state.socket.on('rolled', ({ userId, username, kind, result }) => {
+        showRoll({ userId, username, kind, result });
+    });
+}
+
+function escape(text) {
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // Outgoing video: high bitrate and resolution capped at 1080p so peers see card text clearly
@@ -189,30 +226,20 @@ async function streamStats(state) {
 /**
  * Create WebRTC peer connection with SimplePeer
  * @param {string} userId - Remote user ID
- * @param {string} username - Remote username
  * @param {boolean} initiator - Whether this peer initiates the connection
  * @param {Object} state - Application state object
- * @param {Function} removeCamera - Function to remove camera from UI
- * @param {Function} addCamera - Function to add camera to UI
- * @param {Function} showToast - Toast notification function
+ * @param {Object} handlers - { upsertPlayer, setPlayerStream, showToast }
  * @returns {SimplePeer} - The created peer instance
  */
-function createPeerConnection(userId, username, initiator, state, { removeCamera, addCamera, showToast }) {
-    console.log(`[CREATE PEER] Attempting to create peer for ${username} (${userId}, initiator: ${initiator})`);
-    
+function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlayerStream, showToast }) {
     // Check if peer already exists
     const existingPeer = state.peers.get(userId);
     if (existingPeer && !existingPeer.destroyed) {
-        console.log(`[CREATE PEER] Peer already exists for ${userId}, returning existing peer`);
         return existingPeer;
     }
-    
-    if (existingPeer && existingPeer.destroyed) {
-        console.log(`[CREATE PEER] Old peer exists but is destroyed, creating new one`);
-    }
-    
-    console.log(`[CREATE PEER] Creating new SimplePeer for ${username}`);
-    
+
+    console.log(`[CREATE PEER] Creating new SimplePeer for ${userId} (initiator: ${initiator})`);
+
     const peerConfig = {
         initiator: initiator,
         trickle: true,
@@ -224,72 +251,49 @@ function createPeerConnection(userId, username, initiator, state, { removeCamera
             ]
         }
     };
-    
+
     // Add stream if we have one
     if (state.localStream) {
         peerConfig.stream = state.localStream;
-        console.log('[CREATE PEER] Adding local stream to peer');
     }
-    
+
     const peer = new SimplePeer(peerConfig);
-    
+    const nameOf = () => state.players.get(userId)?.username || 'a player';
+
     peer.on('signal', signal => {
-        console.log(`Sending signal to ${userId}:`, signal.type);
         state.socket.emit('signal', {
             to: userId,
             signal: signal
         });
     });
-    
+
     peer.on('stream', remoteStream => {
-        console.log(`✓ Received stream from ${username}`);
-        console.log('Remote stream tracks:', remoteStream.getTracks());
-        
+        console.log(`✓ Received stream from ${nameOf()}`, remoteStream.getTracks());
+        if (!state.players.has(userId)) upsertPlayer(userId, {});
+
         // Check if stream has active tracks
         const hasActiveTracks = remoteStream.getTracks().some(track => track.enabled && track.readyState === 'live');
-        
-        if (hasActiveTracks) {
-            // Add remote camera with stream
-            if (state.cameras.has(userId)) {
-                removeCamera(userId);
-            }
-            addCamera(userId, remoteStream, username, false);
-            showToast(`Connected to ${username}`, 'success');
-        } else {
-            // No active tracks - show placeholder
-            if (state.cameras.has(userId)) {
-                removeCamera(userId);
-            }
-            addCamera(userId, null, username, false);
-            console.log(`${username} joined without camera`);
-        }
+        setPlayerStream(userId, hasActiveTracks ? remoteStream : null, peer);
     });
-    
+
     peer.on('connect', () => {
-        console.log(`✓ Peer connected: ${username}`);
+        console.log(`✓ Peer connected: ${nameOf()}`);
         tuneVideoSender(peer);
     });
-    
+
     peer.on('error', err => {
         console.error(`Peer connection error with ${userId}:`, err);
-        showToast(`Connection error with ${username}`, 'error');
+        showToast(`Connection problem with ${nameOf()}`, 'error');
     });
-    
+
     peer.on('close', () => {
         console.log(`Peer connection closed with ${userId}`);
-        removeCamera(userId);
+        if (state.peers.get(userId) === peer) state.peers.delete(userId);
+        // Only clear the video this connection delivered (a newer one may have replaced it)
+        if (state.players.get(userId)?.streamPeer === peer) setPlayerStream(userId, null);
     });
-    
+
     state.peers.set(userId, peer);
-    
-    // Update or create camera info
-    const existingCamera = state.cameras.get(userId);
-    if (existingCamera) {
-        existingCamera.peer = peer;
-    } else {
-        state.cameras.set(userId, { username, peer, stream: null, element: null });
-    }
-    
     return peer;
 }
 
@@ -297,5 +301,6 @@ function createPeerConnection(userId, username, initiator, state, { removeCamera
 export {
     initializeSocketIO,
     createPeerConnection,
-    streamStats
+    streamStats,
+    keyOf
 };

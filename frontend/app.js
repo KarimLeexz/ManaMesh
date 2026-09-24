@@ -1,20 +1,25 @@
 /**
  * ManaMesh - Main Application Coordinator
- * Multiplayer MTG Card Scanner with WebRTC
+ * Multiplayer MTG table with WebRTC cameras and card scanning
  *
  * This is the main entry point that coordinates all modules:
- * - camera-manager.js: Camera setup and stream management
- * - webrtc-manager.js: WebRTC peer connections and signaling
- * - ui-controller.js: UI updates and visual effects
- * - recognition-handler.js: Card recognition and scanning
+ * - camera-manager.js: Join / settings dialog, local camera stream
+ * - webrtc-manager.js: WebRTC peer connections, signaling and shared table state
+ * - table-view.js: Player tiles (camera, life, commanders), layouts, toasts
+ * - game-tools.js: Dice, coin, reset, table log, side panel
+ * - commander-picker.js: Choosing a commander
+ * - recognition-handler.js: Card recognition, scanned cards, card search
  */
 
 // ES6 Module Imports
 import {
-    initializeCameraSetup,
+    openSetup,
+    closeSetup,
+    takePreviewStream,
+    setupCameraDialog,
+    useStream,
     enableCamera,
-    disableCamera,
-    stopSetupStream
+    disableCamera
 } from './camera-manager.js';
 
 import {
@@ -24,18 +29,20 @@ import {
 } from './webrtc-manager.js';
 
 import {
-    addCamera,
-    removeCamera,
-    showOnMainFeed,
-    showToast,
-    toggleFlipHorizontal,
-    toggleFlipVertical
-} from './ui-controller.js';
+    initTableView,
+    upsertPlayer,
+    setPlayerStream,
+    removePlayer,
+    setLayout,
+    showToast
+} from './table-view.js';
+
+import { initGameTools, showRoll, logEvent } from './game-tools.js';
+import { setupCommanderPicker, openCommanderPicker } from './commander-picker.js';
 
 import {
-    setupClickHandler,
-    scanAt,
-    displayCard,
+    scanTile,
+    openCardModal,
     checkHealth,
     setupCardSearch
 } from './recognition-handler.js';
@@ -43,52 +50,119 @@ import {
 // The backend serves the frontend, so the API lives on the same origin
 const API_URL = window.location.origin;
 
+// Remembered between visits
+function load(key, fallback) {
+    try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+function save(key, value) {
+    try { localStorage.setItem(key, value); } catch { /* private mode */ }
+}
+
 // Global application state
 const state = {
     socket: null,
     localStream: null,
-    selectedDeviceId: null,
-    username: 'Player',
-    cameras: new Map(), // userId -> {stream, element, username, peer, flipH, flipV, hasStream}
-    currentMainCamera: null,
-    isScanning: false,
-    peers: new Map(), // userId -> SimplePeer instance
+    selectedDeviceId: load('cameraId', null),
+    username: load('username', ''),
+    flipH: load('flipH', 'false') === 'true',   // how our camera is shown to everyone
+    flipV: load('flipV', 'false') === 'true',
+    players: new Map(),   // 'local' or socket id -> player (see table-view.js)
+    peers: new Map(),     // socket id -> SimplePeer instance
     cameraEnabled: false,
-    hasJoinedRoom: false
+    hasJoinedRoom: false,
+    layout: load('layout', 'grid') === 'focus' ? 'focus' : 'grid',
+    focusId: null,
+    startingLife: 40,
+    isScanning: false
 };
 
 /**
  * Callbacks shared by the camera and WebRTC modules. Each module picks the
- * ones it needs (enableCamera, disableCamera, initializeSocketIO and
- * createPeerConnection all destructure a subset of this object).
+ * ones it needs.
  */
-const scan = (fx, fy, click) => scanAt(fx, fy, click, API_URL, state, displayCard, showToast);
-const showMain = (userId) => showOnMainFeed(userId, state, () => setupClickHandler(state, scan));
-
 const handlers = {
     showToast,
-    showOnMainFeed: showMain,
-    addCamera: (userId, stream, username, isLocal) => addCamera(userId, stream, username, isLocal, state, showMain),
-    removeCamera: (userId) => removeCamera(userId, state),
-    createPeerConnection: (userId, username, initiator) =>
-        createPeerConnection(userId, username, initiator, state, handlers)
+    logEvent,
+    showRoll,
+    upsertPlayer,
+    setPlayerStream,
+    removePlayer,
+    createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
+};
+
+/**
+ * Send a change of our own player to the table (or just apply it while offline)
+ */
+function updateMe(changes) {
+    if (state.socket?.connected) {
+        state.socket.emit('player-update', changes);
+    } else {
+        upsertPlayer('local', changes);
+    }
+}
+
+/**
+ * What the tiles can ask for
+ */
+const tileHooks = {
+    changeLife(id, delta) {
+        if (state.socket?.connected) {
+            const target = id === 'local' ? state.socket.id : id;
+            state.socket.emit('player-update', { target, hpDelta: delta });
+        } else {
+            const player = state.players.get(id);
+            if (player) upsertPlayer(id, { hp: player.hp + delta });
+        }
+    },
+    scanTile: (id, x, y) => scanTile(state, id, x, y, API_URL, showToast),
+    openCommanderPicker: () => openCommanderPicker(state.players.get('local')?.commanders || []),
+    showCommander(id, index) {
+        const player = state.players.get(id);
+        const card = player?.commanders[index];
+        if (!card) return;
+        openCardModal(card, player.isLocal
+            ? [{ label: 'Change commander', className: 'btn-primary', onClick: tileHooks.openCommanderPicker }]
+            : []);
+    },
+    openSetup: () => openSetup(state, showToast),
+    toggleCamera() {
+        if (state.cameraEnabled) disableCamera(state, handlers);
+        else enableCamera(state, handlers);
+    },
+    setOwnFlip(key, value) {
+        state[key] = value;
+        save(key, String(value));
+        updateMe({ [key]: value });
+    }
 };
 
 /**
  * Initialize application on page load
  */
-window.addEventListener('DOMContentLoaded', async () => {
+window.addEventListener('DOMContentLoaded', () => {
     initializeTheme();
-    await checkHealth(API_URL);
-    await initializeCameraSetup(state, showToast);
+    initTableView(state, tileHooks);
+    initGameTools(state, { showToast, upsertPlayer });
+    setupCommanderPicker(commanders => updateMe({ commanders }));
+    setupCameraDialog(state, showToast);
+    setupSetupForm();
     setupCardSearch();
+    setLayout(state.layout);
+
+    document.querySelectorAll('input[name="layout"]').forEach(input => {
+        input.addEventListener('change', () => setLayout(input.value));
+    });
+    document.getElementById('settingsButton').addEventListener('click', () => openSetup(state, showToast));
+
+    checkHealth(API_URL);
+    openSetup(state, showToast);
 });
 
 /**
  * Initialize theme from localStorage
  */
 function initializeTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'dim';
+    const savedTheme = load('theme', 'dim');
     document.documentElement.setAttribute('data-theme', savedTheme);
 
     const themeController = document.querySelector('.theme-controller');
@@ -98,100 +172,72 @@ function initializeTheme() {
         themeController.addEventListener('change', (e) => {
             const newTheme = e.target.checked ? 'fantasy' : 'dim';
             document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
+            save('theme', newTheme);
         });
     }
 }
 
-/**
- * Read the username, stop the setup preview and close the setup modal
- */
-function beginJoin() {
-    state.username = document.getElementById('usernameInput').value || 'Player';
-    stopSetupStream();
-    document.getElementById('setupModal').classList.remove('modal-open');
-}
-
-function addLocalPlaceholder() {
-    handlers.addCamera('local', null, state.username + ' (You)', true);
-}
-
-function hideNoCamerasMessage() {
-    const noCamerasMsg = document.getElementById('noCamerasMessage');
-    if (noCamerasMsg) noCamerasMsg.style.display = 'none';
-}
+// Set once the player has left the join dialog for the table
+let inGame = false;
 
 /**
- * Join the room with selected camera
+ * The join / settings dialog: joining the first time, changing name or camera later
  */
-async function joinRoom() {
-    beginJoin();
-
-    // Enable camera FIRST (before connecting to socket)
-    try {
-        if (state.selectedDeviceId) {
-            await enableCamera(state, handlers);
-        }
-    } catch (err) {
-        console.error('Failed to enable camera on join:', err);
-    }
-
-    // Initialize Socket.IO connection
-    if (!state.socket || !state.socket.connected) {
-        initializeSocketIO(API_URL, state, handlers);
-
-        // Add local user if camera not enabled
-        if (!state.cameraEnabled) {
-            addLocalPlaceholder();
-        }
-
-        hideNoCamerasMessage();
-    }
-
-    showToast(`Welcome, ${state.username}!`, 'success');
-}
-
-/**
- * Join room without camera
- */
-async function joinRoomWithoutCamera() {
-    beginJoin();
-
-    initializeSocketIO(API_URL, state, handlers);
-    addLocalPlaceholder();
-    hideNoCamerasMessage();
-
-    showToast(`Welcome, ${state.username}! Enable camera when ready.`, 'success');
-}
-
-/**
- * Reopen camera setup modal
- */
-function reopenCameraSetup() {
+function setupSetupForm() {
     const modal = document.getElementById('setupModal');
-    if (modal) {
-        modal.classList.add('modal-open');
-        // Reinitialize camera preview
-        initializeCameraSetup(state, showToast);
-    }
+
+    document.getElementById('setupForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitSetup(true);
+    });
+    document.getElementById('joinWithoutCameraButton').addEventListener('click', () => submitSetup(false));
+    document.getElementById('setupCancelButton').addEventListener('click', () => closeSetup(state));
+
+    // Before joining, the dialog is the way in: it can't be dismissed. (Browsers don't
+    // always let 'cancel' be prevented, so it simply reopens.)
+    modal.addEventListener('cancel', (e) => {
+        if (!inGame) e.preventDefault();
+        else closeSetup(state);
+    });
+    modal.addEventListener('close', () => {
+        if (!inGame) modal.showModal();
+    });
 }
 
 /**
- * Toggle camera enabled/disabled via checkbox
+ * @param {boolean} withCamera - Join (or carry on) with the camera from the preview
  */
-function toggleCameraEnabled(checkbox) {
-    if (checkbox.checked && !state.cameraEnabled) {
-        enableCamera(state, handlers);
-    } else if (!checkbox.checked && state.cameraEnabled) {
-        disableCamera(state, handlers);
+async function submitSetup(withCamera) {
+    const username = document.getElementById('usernameInput').value.trim().slice(0, 24) || 'Player';
+    const flipH = document.getElementById('flipHInput').checked;
+    const flipV = document.getElementById('flipVInput').checked;
+    const stream = withCamera ? takePreviewStream() : null;
+    inGame = true;
+    closeSetup(state);
+
+    save('username', username);
+    save('flipH', String(flipH));
+    save('flipV', String(flipV));
+    if (stream) save('cameraId', stream.getVideoTracks()[0]?.getSettings().deviceId || '');
+
+    const changes = {};
+    if (username !== state.username) changes.username = username;
+    if (flipH !== state.flipH) changes.flipH = flipH;
+    if (flipV !== state.flipV) changes.flipV = flipV;
+    Object.assign(state, { username, flipH, flipV });
+
+    if (!state.hasJoinedRoom) {
+        upsertPlayer('local', { username, flipH, flipV, hp: state.startingLife });
+        if (stream) await useStream(state, stream, handlers);
+        initializeSocketIO(API_URL, state, handlers);
+        showToast(`Welcome, ${username}!`, 'success');
+        return;
     }
+
+    if (Object.keys(changes).length) updateMe(changes);
+    if (stream) await useStream(state, stream, handlers);
+    else if (!withCamera) disableCamera(state, handlers);
 }
 
-// Make functions available globally for onclick handlers
-window.joinRoom = joinRoom;
-window.joinRoomWithoutCamera = joinRoomWithoutCamera;
-window.reopenCameraSetup = reopenCameraSetup;
-window.toggleCameraEnabled = toggleCameraEnabled;
+// Handy in the browser console: `await streamStats()`
 window.streamStats = () => streamStats(state);
-window.toggleFlipHorizontal = (userId) => toggleFlipHorizontal(userId, state, showToast);
-window.toggleFlipVertical = (userId) => toggleFlipVertical(userId, state, showToast);
