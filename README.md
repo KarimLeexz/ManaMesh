@@ -13,7 +13,9 @@ A web application for recognizing Magic: The Gathering cards using computer visi
 - ❤️ **Life & commanders** - Every player has a life counter (starts at 40) and a commander, synced for everyone
 - 🎲 **Dice & coin** - d4, d6, d8, d10, d12, d20 and a coin flip, animated and shown to the whole table
 - ⏭️ **Turns** - Random turn order per game, pass with Space, easy to undo
-- 🔗 **Tables** - Every table has its own link; send it to your friends to sit down together
+- 🏠 **Lobby** - The start page lists every public table: who is playing, how many watch, how long it's open
+- 🔗 **Tables** - Named, public or private (not listed, invite link only); every table has its own link.
+  A table closes 5 minutes after the last person leaves
 - 🔁 **Reconnect** - Reloading or a dropped connection keeps your seat, life and place in the turn order
 - ⚔️ **Counters** - Commander damage (21 = out, also taken off life), poison (10 = out), energy, experience,
   the monarch and the initiative; players who are out are skipped when passing the turn
@@ -109,8 +111,10 @@ Navigate to: **http://localhost:8000**
 
 ## Usage
 
-1. **Join** - Opening the site starts a new table at its own link (`/t/brave-dragon-417`); send that link
-   (🔗 button, or *Invite* in the join dialog) to your friends. Enter your name, pick your camera and
+1. **Join** - The start page is the lobby with all public tables: *Join* one, or *Create table* (top right)
+   with a name and *Public* (listed) or *Private* (only with the link). Every table has its own link
+   (`/t/brave-dragon-417`); send it (🔗 button, or *Invite* in the join dialog) to your friends, or paste
+   one into *Invite link or code* in the lobby. At the table, enter your name, pick your camera and
    mirror / flip it until your cards read the right way round (the preview shows exactly what the others
    see). Allow camera access when the browser asks. *Just watch* joins as a spectator: you see every
    camera but have no seat; *Take a seat* in the top bar makes you a player
@@ -158,7 +162,8 @@ ManaMesh/
 │   ├── card_index.py        # Hash index storage and lookup
 │   └── build_index.py       # Index builder (downloads from Scryfall)
 ├── frontend/
-│   ├── index.html           # Main UI
+│   ├── lobby.html / lobby.js # Start page: the tables
+│   ├── index.html           # A table
 │   ├── app.js               # Wires the modules together
 │   ├── table-view.js        # Player tiles, layouts, life counters
 │   ├── game-tools.js        # Dice, coin, reset, log
@@ -175,7 +180,11 @@ ManaMesh/
 
 ## API Endpoints
 
-- `GET /` - Serve frontend
+- `GET /` - The lobby
+- `GET /t/{table}` - A table
+- `GET /api/tables` - Public tables (name, players, spectators, when opened)
+- `POST /api/tables` - Create a table: `{"name": "...", "private": false}` → `{"id": ...}`
+- `GET /api/tables/{table}` - One table (404 once it has closed)
 - `GET /health` - Health check and stats
 - `GET /api/stats` - Database statistics
 - `POST /api/recognize` - Recognize card from image

@@ -5,7 +5,9 @@ every player's life total, counters, commander damage, commanders and camera ori
 turns, dice rolls, resets and chat.
 
 Tables ("rooms") are separate: each has its own link (/t/<code>), players, turn order and
-settings. Nothing leaks from one table to another.
+settings. Nothing leaks from one table to another. Tables are created from the lobby
+(routes/tables.py), public ones are listed there, private ones only work with their link.
+A table nobody is connected to closes after EMPTY_TABLE_SECONDS.
 
 Every browser tab has a player id of its own that survives a reload. A player who drops out
 keeps their seat (life, commanders, place in the turn order) for SEAT_GRACE_SECONDS, so a
@@ -26,6 +28,9 @@ from typing import Dict, Any, List, Optional, Tuple
 
 DEFAULT_STARTING_LIFE = 40
 SEAT_GRACE_SECONDS = 15 * 60     # how long a dropped player's seat is kept
+EMPTY_TABLE_SECONDS = 5 * 60     # how long a table with nobody connected stays open
+MAX_TABLES = 200                 # open tables at once, so nobody can fill the server up
+MAX_TABLE_NAME_LENGTH = 40
 
 MAX_NAME_LENGTH = 24
 MAX_CHAT_LENGTH = 500
@@ -42,6 +47,14 @@ RESET_KINDS = {'life', 'commanders', 'all'}
 TURN_ACTIONS = {'start', 'next', 'prev', 'set'}
 
 ROOM_ID = re.compile(r'^[a-z0-9-]{3,40}$')
+
+# Words for table links: "brave-dragon-417"
+TABLE_WORDS = (
+    ('red', 'blue', 'green', 'black', 'white', 'golden', 'wild', 'swift', 'quiet', 'brave',
+     'dark', 'bright', 'ancient', 'hidden', 'mighty', 'lucky', 'fierce', 'silent', 'grim', 'noble'),
+    ('dragon', 'goblin', 'sphinx', 'hydra', 'angel', 'demon', 'elf', 'golem', 'phoenix', 'kraken',
+     'wurm', 'sliver', 'djinn', 'faerie', 'vampire', 'zombie', 'merfolk', 'griffin', 'titan', 'wizard'),
+)
 PLAYER_ID = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
 
 
@@ -57,6 +70,10 @@ def clean_life(value: Any, default: int) -> int:
         return max(-LIFE_LIMIT, min(LIFE_LIMIT, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def clean_table_name(value: Any) -> str:
+    return ' '.join(str(value or '').split())[:MAX_TABLE_NAME_LENGTH]
 
 
 def clean_int(value: Any, default: int = 0) -> int:
@@ -86,8 +103,12 @@ def clean_commanders(value: Any) -> List[Dict[str, str]]:
 class Room:
     """One game table."""
 
-    def __init__(self, room_id: str):
+    def __init__(self, room_id: str, name: str = '', private: bool = False):
         self.id = room_id
+        self.name = clean_table_name(name) or room_id.replace('-', ' ').title()
+        self.private = bool(private)
+        self.created_at = time.time()    # for "open for 23 min" in the lobby
+        self.empty_since: Optional[float] = None
         self.players: Dict[str, Dict[str, Any]] = {}   # player id -> player (players and spectators)
         self.starting_life = DEFAULT_STARTING_LIFE
         # Whose turn it is. Empty order = nobody has started turns yet.
@@ -162,8 +183,21 @@ class Room:
             'out': self.is_out(player),
         }
 
+    def lobby_entry(self) -> Dict[str, Any]:
+        """What the lobby shows about a table."""
+        seated = self.seated()
+        return {
+            'id': self.id,
+            'name': self.name,
+            'players': [p['username'] for p in seated],
+            'spectators': sum(1 for p in self.players.values() if p['role'] == 'spectator'),
+            'createdAt': self.created_at,
+        }
+
     def table_state(self) -> Dict[str, Any]:
         return {
+            'name': self.name,
+            'private': self.private,
             'startingLife': self.starting_life,
             'turn': {'order': list(self.turn['order']), 'current': self.turn['current'], 'number': self.turn['number']},
             'markers': dict(self.markers),
@@ -218,6 +252,50 @@ rooms: Dict[str, Room] = {}
 sessions: Dict[str, Tuple[str, str]] = {}    # socket id -> (room id, player id)
 
 
+def new_table_id() -> str:
+    rng = random.SystemRandom()
+    while True:
+        table_id = f"{rng.choice(TABLE_WORDS[0])}-{rng.choice(TABLE_WORDS[1])}-{rng.randint(100, 999)}"
+        if table_id not in rooms:
+            return table_id
+
+
+def create_table(name: str, private: bool) -> Optional[Room]:
+    """A new table from the lobby (None if the server is full)."""
+    if len(rooms) >= MAX_TABLES:
+        return None
+    room = Room(new_table_id(), name, private)
+    rooms[room.id] = room
+    close_if_empty(room)   # nobody has sat down yet
+    return room
+
+
+def public_tables() -> List[Dict[str, Any]]:
+    """The lobby's list: public tables, newest first."""
+    tables = [room.lobby_entry() for room in rooms.values() if not room.private]
+    return sorted(tables, key=lambda table: table['createdAt'], reverse=True)
+
+
+def close_if_empty(room: Room):
+    """
+    Nobody connected at a table: close it in EMPTY_TABLE_SECONDS, unless someone
+    (re)joins in the meantime.
+    """
+    if any(p['sid'] for p in room.players.values()):
+        room.empty_since = None
+        return
+    token = time.monotonic()
+    room.empty_since = token
+
+    async def close():
+        await asyncio.sleep(EMPTY_TABLE_SECONDS)
+        if rooms.get(room.id) is room and room.empty_since == token:
+            del rooms[room.id]
+            print(f"✗ Closed empty table: {room.name} ({room.id})")
+
+    asyncio.create_task(close())
+
+
 def lookup(sid: str) -> Tuple[Optional[Room], Optional[Dict[str, Any]]]:
     """The table and player behind a connection (both None if it hasn't joined a table)."""
     room_id, pid = sessions.get(sid, (None, None))
@@ -253,9 +331,6 @@ def register_socket_handlers(sio: socketio.AsyncServer):
                 room.markers[marker] = None
         turn_changed = room.remove_from_turns(pid)
 
-        if not room.players:
-            rooms.pop(room_id, None)
-            return
         await to_table(room, 'user-left', {'userId': pid})
         if turn_changed:
             await to_table(room, 'turn-changed', {'turn': room.table_state()['turn'], 'action': 'left', 'by': player['username']})
@@ -274,16 +349,13 @@ def register_socket_handlers(sio: socketio.AsyncServer):
 
         if player['role'] == 'spectator':
             del room.players[player['pid']]
-            if not room.players:
-                rooms.pop(room.id, None)
-                return
             await to_table(room, 'user-left', {'userId': player['pid']})
-            return
-
-        player['sid'] = None
-        player['left_at'] = time.monotonic()
-        await to_table(room, 'player-updated', room.public(player))
-        asyncio.create_task(expire_seat(room.id, player['pid'], player['left_at']))
+        else:
+            player['sid'] = None
+            player['left_at'] = time.monotonic()
+            await to_table(room, 'player-updated', room.public(player))
+            asyncio.create_task(expire_seat(room.id, player['pid'], player['left_at']))
+        close_if_empty(room)
 
     @sio.event
     async def connect(sid, environ):
@@ -299,7 +371,8 @@ def register_socket_handlers(sio: socketio.AsyncServer):
         """
         Sit down at a table (or come back to your seat). data: room, playerId, role
         ('player' / 'spectator'), username, flipH, flipV, and after a server restart the
-        last known hp and commanders.
+        last known hp and commanders, plus 'recreate' ({name, private}) to open the table again.
+        Tables are made in the lobby: an unknown (closed) table is not created here.
         """
         data = data if isinstance(data, dict) else {}
         room_id = str(data.get('room') or '').lower()
@@ -315,7 +388,14 @@ def register_socket_handlers(sio: socketio.AsyncServer):
         if sid in sessions:
             await leave_table(sid)
 
-        room = rooms.setdefault(room_id, Room(room_id))
+        room = rooms.get(room_id)
+        recreate = data.get('recreate')
+        if room is None and isinstance(recreate, dict) and len(rooms) < MAX_TABLES:
+            # The server restarted under a running game: the players bring their table back
+            room = rooms[room_id] = Room(room_id, recreate.get('name'), bool(recreate.get('private')))
+        if room is None:
+            await sio.emit('join-error', {'code': 'not-found', 'message': 'This table has closed.'}, to=sid)
+            return
         player = room.players.get(pid)
         if player is None and role == 'player':
             player = room.find_seat_by_name(data.get('username'))
@@ -336,6 +416,7 @@ def register_socket_handlers(sio: socketio.AsyncServer):
 
         player['sid'] = sid
         player['left_at'] = None
+        room.empty_since = None
         sessions[sid] = (room.id, player['pid'])
         await sio.enter_room(sid, room.id)
         print(f"✓ {'Back' if rejoined else 'Joined'}: {player['username']} as {player['role']} ({room.id})")

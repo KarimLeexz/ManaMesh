@@ -12,7 +12,7 @@
  * - chat.js: Table-wide text chat
  * - counters.js: Counters, commander damage, monarch / initiative, out of the game
  *
- * Every table has its own link, /t/<code>. Opening the site without one starts a new table.
+ * Every table has its own link, /t/<code>; tables are created in the lobby (lobby.js, at /).
  */
 
 // ES6 Module Imports
@@ -66,29 +66,20 @@ function save(key, value) {
     try { localStorage.setItem(key, value); } catch { /* private mode */ }
 }
 
-// Words for new table links: "brave-dragon-417"
-const TABLE_WORDS = [
-    ['red', 'blue', 'green', 'black', 'white', 'golden', 'wild', 'swift', 'quiet', 'brave',
-     'dark', 'bright', 'ancient', 'hidden', 'mighty', 'lucky', 'fierce', 'silent', 'grim', 'noble'],
-    ['dragon', 'goblin', 'sphinx', 'hydra', 'angel', 'demon', 'elf', 'golem', 'phoenix', 'kraken',
-     'wurm', 'sliver', 'djinn', 'faerie', 'vampire', 'zombie', 'merfolk', 'griffin', 'titan', 'wizard']
-];
-
-function randomIndex(n) {
-    return crypto.getRandomValues(new Uint32Array(1))[0] % n;
-}
-
 /**
- * The table in the URL (/t/<code>). Without one, a new table is started and the URL
- * becomes its link, ready to share.
+ * The table in the URL (/t/<code>). Without one there is nothing to sit down at: back to
+ * the lobby.
  */
 function tableFromUrl() {
     const match = location.pathname.match(/^\/t\/([a-z0-9-]{3,40})\/?$/i);
     if (match) return match[1].toLowerCase();
-    const code = `${TABLE_WORDS[0][randomIndex(TABLE_WORDS[0].length)]}-` +
-                 `${TABLE_WORDS[1][randomIndex(TABLE_WORDS[1].length)]}-${100 + randomIndex(900)}`;
-    history.replaceState(null, '', `/t/${code}`);
-    return code;
+    location.replace('/');
+    return null;
+}
+
+/** A table that has closed (or never existed): back to the lobby, which says so */
+function tableClosed() {
+    location.replace('/?closed=1');
 }
 
 /**
@@ -111,6 +102,7 @@ function tabPlayerId() {
 // Global application state
 const state = {
     room: tableFromUrl(),
+    tableInfo: { name: '', private: false },   // shown in the top bar; brought along after a server restart
     playerId: tabPlayerId(),
     role: 'player',       // or 'spectator': watching only
     spectators: new Map(),  // player id -> name, of everyone watching
@@ -147,6 +139,7 @@ const handlers = {
     removePlayer,
     receiveChatMessage,
     applyTable,
+    tableClosed,
     setSpectators,
     roleChanged,
     createPeerConnection: (userId, initiator) => createPeerConnection(userId, initiator, state, handlers)
@@ -156,11 +149,33 @@ const handlers = {
  * Table-wide state from the server: starting life, markers (the turn goes through setTurn)
  */
 function applyTable(table) {
+    if (table.name !== undefined) showTableName({ name: table.name, private: table.private });
     if (table.startingLife !== undefined) state.startingLife = table.startingLife;
     if (table.markers) {
         state.markers = table.markers;
         updateTurnMarkers();
         refreshCounters();
+    }
+}
+
+function showTableName(info) {
+    state.tableInfo = info;
+    document.title = `${info.name} · ManaMesh`;
+    document.getElementById('tableName').textContent = info.name;
+    document.getElementById('tablePrivate').classList.toggle('hidden', !info.private);
+    document.getElementById('setupTableName').textContent = info.name;
+}
+
+/**
+ * Before the join dialog: does the table still exist, and what is it called?
+ */
+async function loadTableInfo() {
+    try {
+        const response = await fetch(`${API_URL}/api/tables/${encodeURIComponent(state.room)}`);
+        if (response.status === 404) return tableClosed();
+        if (response.ok) showTableName(await response.json());
+    } catch (err) {
+        console.warn('Could not load the table:', err);   // the join itself will tell
     }
 }
 
@@ -238,6 +253,8 @@ const tileHooks = {
  * Initialize application on page load
  */
 window.addEventListener('DOMContentLoaded', () => {
+    if (!state.room) return;   // on the way to the lobby
+    loadTableInfo();
     initializeTheme();
     initTableView(state, tileHooks);
     initGameTools(state, { showToast, upsertPlayer });
@@ -317,7 +334,7 @@ function setupSetupForm() {
  */
 function setupInvite() {
     const link = () => `${location.origin}/t/${state.room}`;
-    document.getElementById('tableCode').textContent = state.room;
+    document.getElementById('tableCode').textContent = `/t/${state.room}`;
 
     const copy = async () => {
         try {

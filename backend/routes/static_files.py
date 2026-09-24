@@ -22,6 +22,7 @@ ASSETS = {
     "commander-picker.js": "application/javascript",
     "chat.js": "application/javascript",
     "counters.js": "application/javascript",
+    "lobby.js": "application/javascript",
     "recognition-handler.js": "application/javascript",
     "turn-config.js": "application/javascript",
     "app.css": "text/css",
@@ -40,10 +41,10 @@ NO_CACHE_HEADERS = {
 
 @router.get("/")
 async def root():
-    """Serve the frontend index.html."""
-    index_path = FRONTEND_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
+    """The lobby: the list of tables."""
+    lobby_path = FRONTEND_DIR / "lobby.html"
+    if lobby_path.exists():
+        return FileResponse(lobby_path)
     return {
         "message": "ManaMesh API",
         "docs": "/docs",

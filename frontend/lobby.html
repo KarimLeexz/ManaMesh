@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dim">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>ManaMesh · Tables</title>
+    <base href="/">
+    <link rel="icon" href="logo_image.png">
+
+    <!-- Tailwind CSS 4 + daisyUI 5 + our own styles, built from src/app.css (npm run build) -->
+    <link rel="stylesheet" href="app.css">
+</head>
+<body class="min-h-dvh flex flex-col bg-base-200 text-base-content">
+
+    <!-- ============================== Top bar ============================== -->
+    <header class="navbar min-h-0 h-14 shrink-0 gap-2 bg-base-100 px-2 sm:px-4 shadow-sm sticky top-0 z-30">
+        <a href="/" class="flex items-center gap-2 flex-1 min-w-0">
+            <img src="logo_image.png" alt="" class="h-9 w-9 object-contain" />
+            <img src="logo_text.png" alt="ManaMesh" class="h-6 object-contain max-sm:hidden" />
+        </a>
+
+        <label class="swap swap-rotate btn btn-ghost btn-square" title="Light / dark">
+            <input type="checkbox" class="theme-controller" value="fantasy" />
+            <svg class="swap-off h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/></svg>
+            <svg class="swap-on h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
+        </label>
+
+        <button class="btn btn-primary gap-1.5" id="createButton">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Create table
+        </button>
+    </header>
+
+    <!-- ============================== Tables ============================== -->
+    <main class="w-full max-w-6xl mx-auto flex-1 px-4 py-6 sm:py-10 flex flex-col gap-6">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h1 class="text-2xl sm:text-3xl font-bold">Tables</h1>
+                <p class="text-base-content/60 mt-1">Play paper Magic over webcams. Sit down at an open table or create your own.</p>
+            </div>
+
+            <!-- Private tables: paste the invite link or code -->
+            <form class="join" id="joinLinkForm">
+                <label class="input join-item w-64 max-sm:w-48">
+                    <svg class="h-4 w-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                    <input type="text" id="joinLinkInput" placeholder="Invite link or code" autocomplete="off" class="grow" />
+                </label>
+                <button type="submit" class="btn join-item">Join</button>
+            </form>
+        </div>
+
+        <div id="tableList" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="col-span-full flex justify-center py-16"><span class="loading loading-dots loading-lg"></span></div>
+        </div>
+    </main>
+
+    <!-- ============================== Copyright ============================== -->
+    <footer class="footer footer-center gap-2 p-6 bg-base-100 text-base-content/60 text-xs border-t border-base-300">
+        <aside class="max-w-3xl flex flex-col gap-2">
+            <p>
+                ManaMesh is unofficial Fan Content permitted under the
+                <a class="link" href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener">Fan Content Policy</a>.
+                Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast.
+                ©Wizards of the Coast LLC. Magic: The Gathering and its card images are © Wizards of the Coast.
+            </p>
+            <p>
+                Card data and images provided by <a class="link" href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.
+                Cameras connect directly between players; nothing is recorded.
+            </p>
+            <p>© 2025–2026 <b>Karim Graul</b> · ManaMesh</p>
+        </aside>
+    </footer>
+
+    <!-- ============================== Create a table ============================== -->
+    <dialog id="createModal" class="modal modal-bottom sm:modal-middle">
+        <form class="modal-box flex flex-col gap-4" id="createForm">
+            <h3 class="text-lg font-bold">Create a table</h3>
+
+            <fieldset class="fieldset">
+                <legend class="fieldset-legend">Table name</legend>
+                <input type="text" id="tableNameInput" class="input w-full" maxlength="40" placeholder="Friday night Commander" autocomplete="off" />
+            </fieldset>
+
+            <fieldset class="fieldset">
+                <legend class="fieldset-legend">Who can join</legend>
+                <label class="flex items-start gap-3 rounded-box border border-base-300 p-3 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input type="radio" name="visibility" value="public" class="radio radio-primary mt-0.5" checked />
+                    <span>
+                        <span class="font-semibold">Public</span>
+                        <span class="block text-sm text-base-content/60">Listed here, anyone can sit down or watch.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-3 rounded-box border border-base-300 p-3 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input type="radio" name="visibility" value="private" class="radio radio-primary mt-0.5" />
+                    <span>
+                        <span class="font-semibold">Private</span>
+                        <span class="block text-sm text-base-content/60">Not listed. Only people with the invite link can join.</span>
+                    </span>
+                </label>
+            </fieldset>
+
+            <p class="text-xs text-base-content/50">A table closes 5 minutes after the last person leaves.</p>
+
+            <div class="modal-action mt-0">
+                <button type="button" class="btn btn-ghost" id="createCancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="createSubmit">Create &amp; sit down</button>
+            </div>
+        </form>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <div id="toasts" class="toast toast-end toast-bottom z-[70]"></div>
+
+    <script type="module" src="lobby.js"></script>
+</body>
+</html>

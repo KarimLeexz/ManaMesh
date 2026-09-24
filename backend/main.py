@@ -25,7 +25,7 @@ try:
         FRONTEND_DIR, CARD_INDEX_PATH
     )
     from backend.recognizer import get_recognizer
-    from backend.routes import health, recognition, static_files
+    from backend.routes import health, recognition, static_files, tables
     from backend.sockets.signaling import register_socket_handlers, clear_connected_users
 except ImportError:
     from config import (
@@ -36,7 +36,7 @@ except ImportError:
         FRONTEND_DIR, CARD_INDEX_PATH
     )
     from recognizer import get_recognizer
-    from routes import health, recognition, static_files
+    from routes import health, recognition, static_files, tables
     from sockets.signaling import register_socket_handlers, clear_connected_users
 
 
@@ -99,6 +99,7 @@ if FRONTEND_DIR.exists():
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(recognition.router, tags=["Recognition"])
+app.include_router(tables.router, tags=["Tables"])
 app.include_router(static_files.router, tags=["Static Files"])
 
 # Create ASGI app combining FastAPI and Socket.IO
