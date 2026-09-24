@@ -64,12 +64,17 @@ function initializeSocketIO(API_URL, state, handlers) {
             username: state.username,
             flipH: state.flipH,
             flipV: state.flipV,
+            // After a server restart our table is gone: we bring it (and our life total) back
+            ...(state.hasJoinedRoom ? { recreate: state.tableInfo } : {}),
             ...(state.hasJoinedRoom && me ? { hp: me.hp, commanders: me.commanders } : {})
         });
         state.hasJoinedRoom = true;
     });
 
-    state.socket.on('join-error', ({ message }) => showToast(message, 'error'));
+    state.socket.on('join-error', ({ code, message }) => {
+        if (code === 'not-found') handlers.tableClosed();
+        else showToast(message, 'error');
+    });
 
     state.socket.on('existing-users', ({ users, you, table }) => {
         console.log(`Found ${users.length} others at the table:`, users);

@@ -22,8 +22,14 @@
     <!-- ============================== Top bar ============================== -->
     <header class="navbar min-h-0 h-14 shrink-0 gap-1 sm:gap-2 bg-base-100 px-2 shadow-sm z-30">
         <div class="flex items-center gap-2 min-w-0 flex-1">
-            <img src="logo_image.png" alt="" class="h-9 w-9 object-contain max-sm:hidden" />
-            <img src="logo_text.png" alt="ManaMesh" class="h-6 object-contain max-sm:hidden" />
+            <a href="/" class="flex items-center gap-2 shrink-0 max-sm:hidden" title="Back to the tables">
+                <img src="logo_image.png" alt="" class="h-9 w-9 object-contain" />
+                <img src="logo_text.png" alt="ManaMesh" class="h-6 object-contain max-lg:hidden" />
+            </a>
+            <div class="min-w-0 flex items-center gap-1.5 max-md:hidden">
+                <span id="tableName" class="font-semibold truncate"></span>
+                <svg id="tablePrivate" class="hidden h-4 w-4 shrink-0 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><title>Private table</title><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            </div>
             <div class="tooltip tooltip-bottom ml-1" id="scannerStatusTip" data-tip="Checking card scanner…">
                 <div class="badge badge-ghost gap-1.5 max-md:hidden">
                     <span id="scannerStatusDot" class="status status-neutral"></span>
@@ -173,8 +179,10 @@
             </div>
 
             <p class="shrink-0 text-[10px] leading-tight text-base-content/40 px-1">
+                Unofficial Fan Content permitted under the
+                <a href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener" class="link">Fan Content Policy</a>.
+                Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
                 Card data &amp; images: <a href="https://scryfall.com" target="_blank" rel="noopener" class="link">Scryfall</a>.
-                Magic: The Gathering © Wizards of the Coast.
             </p>
         </aside>
     </main>
@@ -227,8 +235,8 @@
 
                     <div class="flex items-center justify-between gap-2 rounded-box bg-base-200 px-3 py-2">
                         <div class="min-w-0">
-                            <div class="text-xs text-base-content/50">Table</div>
-                            <div class="font-mono text-sm font-semibold truncate" id="tableCode"></div>
+                            <div class="font-semibold truncate" id="setupTableName">Table</div>
+                            <div class="font-mono text-xs text-base-content/50 truncate" id="tableCode"></div>
                         </div>
                         <button type="button" class="btn btn-sm btn-ghost gap-1 shrink-0" id="copyTableLink" title="Copy the link to this table">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
