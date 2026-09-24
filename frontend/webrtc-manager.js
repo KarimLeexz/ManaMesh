@@ -253,10 +253,14 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
         initiator: initiator,
         trickle: true,
         config: {
+            // window.MANAMESH_TURN is set by frontend/turn-config.js (gitignored, holds a
+            // credential - see turn-config.js.example) for peers behind strict NAT/CGNAT
+            // where STUN alone can't establish a direct link. Falls back to STUN-only if absent.
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                ...(window.MANAMESH_TURN ? [window.MANAMESH_TURN] : [])
             ]
         }
     };

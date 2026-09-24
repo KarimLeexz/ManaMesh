@@ -1,0 +1,25 @@
+# coturn TURN server config for ManaMesh.
+# Copy to turnserver.conf (gitignored - contains a secret), fill in
+# YOUR_SERVER_PUBLIC_IP, your-domain.example and a real password below,
+# then use the SAME user/password in frontend/webrtc-manager.js's iceServers list.
+
+listening-port=3478
+tls-listening-port=5349
+min-port=49152
+max-port=65535
+
+# Your Hetzner server's public IPv4 (found in the Hetzner Cloud console)
+external-ip=YOUR_SERVER_PUBLIC_IP
+
+fingerprint
+lt-cred-mech
+user=manamesh:CHANGE_ME_PASSWORD
+realm=your-domain.example
+
+# Don't let the relay be used to reach other machines on the server's private network
+no-multicast-peerelay
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+
+no-cli

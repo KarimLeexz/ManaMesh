@@ -21,6 +21,7 @@ ASSETS = {
     "game-tools.js": "application/javascript",
     "commander-picker.js": "application/javascript",
     "recognition-handler.js": "application/javascript",
+    "turn-config.js": "application/javascript",
     "app.css": "text/css",
     "logo.png": "image/png",
     "logo_image.png": "image/png",

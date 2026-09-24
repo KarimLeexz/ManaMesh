@@ -304,6 +304,11 @@
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
+    <!-- Optional self-hosted TURN server config, sets window.MANAMESH_TURN if present.
+         Not committed to git (see turn-config.js.example) since it holds a credential;
+         missing on a plain dev setup is fine, the app just falls back to STUN-only. -->
+    <script src="turn-config.js"></script>
+
     <!-- ES6 Module - All dependencies loaded via imports -->
     <script type="module" src="app.js"></script>
 </body>

@@ -1,0 +1,11 @@
+.venv
+.git
+.claude
+node_modules
+__pycache__
+*.pyc
+scans/
+card_features.pkl
+.env
+.env.example
+*.md
