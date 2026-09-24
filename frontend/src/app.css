@@ -1,0 +1,19 @@
+/*
+ * Source of frontend/app.css - build with `npm run build` (or `npm run watch` while working).
+ * Tailwind only generates the classes it finds in the files listed below, so a class that
+ * is put together at runtime (e.g. `alert-${type}`) must be listed under @source inline.
+ */
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "../*.js";
+
+/* Classes built from variables in the JS */
+@source inline("alert-{info,success,warning,error}");
+@source inline("status-{success,warning,error,neutral}");
+
+@plugin "daisyui" {
+    themes: dim --default, fantasy;
+}
+
+/* ManaMesh's own styles: camera tiles, life counters, dice, coin */
+@import "../styles.css";
