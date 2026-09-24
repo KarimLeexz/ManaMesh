@@ -1,10 +1,11 @@
 /**
  * Game Tools Module
- * Dice, coin flips, the table reset, the table log and the side panel.
+ * Dice, coin flips, turns, the table reset, the table log and the side panel.
  * Rolls happen in the roller's browser and are shown to everyone with the same result.
+ * Turns live on the server; anyone can pass (Space) or take back (Shift+Space) the turn.
  */
 
-import { escapeHtml } from './table-view.js';
+import { escapeHtml, setFocus, updateTurnMarkers } from './table-view.js';
 
 // Die shapes (viewBox 0 0 100 100): outline and a few inner edges for a hint of depth
 const DICE = {
@@ -22,14 +23,17 @@ const DICE = {
                       edge: '<path class="edge" d="M50 22 78 70 22 70Z M50 3 50 22M92 27 78 70M8 27 22 70M92 73 78 70M8 73 22 70M50 97 50 70"/>' }
 };
 
-const COIN_FACES = {
-    1: { label: 'Heads', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 12H5z"/></svg>' },
-    2: { label: 'Tails', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 14.5 9 21 9.5 16 14l1.5 6.5L12 17l-5.5 3.5L8 14 3 9.5 9.5 9z"/></svg>' }
+// The coin is drawn like a die: a disc with a rim
+const COIN = {
+    face: '<circle class="face" cx="50" cy="50" r="46"/>',
+    edge: '<circle class="edge" cx="50" cy="50" r="36"/>'
 };
+const COIN_SIDES = { 1: 'Heads', 2: 'Tails' };
 
 const ROLL_SHOWN_MS = 4200;   // how long a result stays over the cameras
 const MAX_ROLL_CARDS = 4;
 const MAX_LOG = 100;
+const PASS_COOLDOWN_MS = 400;   // a double tap of Space shouldn't skip a player
 
 let state = null;
 let deps = null;
@@ -44,6 +48,7 @@ function initGameTools(appState, appDeps) {
     deps = appDeps;
     setupDice();
     setupCoin();
+    setupTurns();
     setupReset();
     setupSidebar();
 }
@@ -97,88 +102,68 @@ function setupCoin() {
 }
 
 /**
- * Show a roll over the cameras: a die tumbling to its number, or a coin flipping
+ * Show a roll over the cameras: a die tumbling to its number, or a coin spinning to a side.
+ * Both use the same look and the same kind of animation.
  * @param {Object} roll - { userId, username, kind, result }
  */
 function showRoll({ userId, username, kind, result }) {
     const layer = document.getElementById('rollLayer');
-    const mine = userId === 'local';
-    const who = mine ? 'You' : escapeHtml(username);
+    const who = userId === 'local' ? 'You' : escapeHtml(username);
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isCoin = kind === 'coin';
+    const shape = isCoin ? COIN : DICE[kind];
+    const label = (value) => (isCoin ? COIN_SIDES[value] : String(value));
+    const text = label(result);
 
     const card = document.createElement('div');
     card.className = 'roll-card';
-
-    let text;
-    if (kind === 'coin') {
-        text = COIN_FACES[result].label;
-        card.innerHTML = `
-            <div class="coin">
-                <div class="coin-inner">
-                    <div class="coin-face front"><div>${COIN_FACES[1].icon}${COIN_FACES[1].label}</div></div>
-                    <div class="coin-face back"><div>${COIN_FACES[2].icon}${COIN_FACES[2].label}</div></div>
-                </div>
-            </div>
-            <div class="roll-result-text">&nbsp;</div>
-            <div class="roll-caption"><b>${who}</b> flipped a coin</div>`;
-    } else {
-        text = String(result);
-        card.innerHTML = `
-            <div class="die ${kind}">
-                ${dieSvg(kind)}
-                <span class="die-value">?</span>
-            </div>
-            <div class="roll-caption"><b>${who}</b> rolled a ${kind}</div>`;
-    }
+    card.innerHTML = `
+        <div class="die ${isCoin ? 'coin' : kind}">
+            <svg viewBox="0 0 100 100" aria-hidden="true">${shape.face}${shape.edge}</svg>
+            <span class="die-value">${reduceMotion ? text : '?'}</span>
+        </div>
+        <div class="roll-caption"><b>${who}</b> ${isCoin ? 'flipped a coin' : `rolled a ${kind}`}</div>`;
 
     layer.appendChild(card);
     while (layer.children.length > MAX_ROLL_CARDS) layer.firstElementChild.remove();
 
+    const die = card.querySelector('.die');
+    const value = card.querySelector('.die-value');
     const land = () => {
-        if (kind === 'coin') {
-            card.querySelector('.roll-result-text').textContent = text;
-        } else {
-            const die = card.querySelector('.die');
-            const value = card.querySelector('.die-value');
-            value.textContent = text;
+        value.textContent = text;
+        if (!isCoin) {
             die.classList.toggle('is-max', result === DICE[kind].sides);
             die.classList.toggle('is-min', result === 1 && kind === 'd20');
-            if (!reduceMotion) value.animate([{ transform: 'scale(1.6)' }, { transform: 'scale(1)' }], { duration: 250, easing: 'ease-out' });
         }
+        if (!reduceMotion) value.animate([{ transform: 'scale(1.6)' }, { transform: 'scale(1)' }], { duration: 250, easing: 'ease-out' });
     };
 
     if (reduceMotion) {
-        if (kind === 'coin') card.querySelector('.coin-inner').style.transform = result === 2 ? 'rotateY(180deg)' : '';
         land();
     } else {
         card.animate([{ opacity: 0, transform: 'translateY(16px) scale(0.92)' }, { opacity: 1, transform: 'none' }],
                      { duration: 200, easing: 'ease-out' });
 
-        if (kind === 'coin') {
-            // Five full turns, plus half a turn to land on tails
-            const end = 360 * 5 + (result === 2 ? 180 : 0);
-            card.querySelector('.coin-inner').animate(
-                [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${end}deg)` }],
-                { duration: 1300, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' });
-            card.querySelector('.coin').animate(
-                [{ transform: 'translateY(0) scale(1)' }, { transform: 'translateY(-28px) scale(1.15)', offset: 0.4 }, { transform: 'translateY(0) scale(1)' }],
-                { duration: 1300, easing: 'ease-in-out' });
-            setTimeout(land, 1300);
-        } else {
-            const die = card.querySelector('.die');
-            const value = card.querySelector('.die-value');
-            die.animate([
+        // A die tumbles in, a coin spins in the air; both settle with a small bounce
+        const motion = isCoin
+            ? [
+                { transform: 'translateY(0) rotateY(0deg) scale(0.6)' },
+                { transform: 'translateY(-26px) rotateY(900deg) scale(1.1)', offset: 0.5 },
+                { transform: 'translateY(0) rotateY(1440deg) scale(1.04)', offset: 0.85 },
+                { transform: 'translateY(0) rotateY(1440deg) scale(1)' }
+            ]
+            : [
                 { transform: 'translateY(-30px) rotate(-420deg) scale(0.4)' },
                 { transform: 'translateY(0) rotate(18deg) scale(1.1)', offset: 0.7 },
                 { transform: 'rotate(-6deg) scale(0.97)', offset: 0.86 },
                 { transform: 'rotate(0deg) scale(1)' }
-            ], { duration: 950, easing: 'cubic-bezier(.2,.7,.3,1)' });
+            ];
+        die.animate(motion, { duration: 950, easing: 'cubic-bezier(.2,.7,.3,1)' });
 
-            // Numbers flicker while it tumbles
-            const sides = DICE[kind].sides;
-            const flicker = setInterval(() => { value.textContent = randomRoll(sides); }, 60);
-            setTimeout(() => { clearInterval(flicker); land(); }, 820);
-        }
+        // The face flickers while it moves
+        const sides = isCoin ? 2 : DICE[kind].sides;
+        const flicker = setInterval(() => { value.textContent = label(randomRoll(sides)); }, isCoin ? 90 : 60);
+        setTimeout(() => { clearInterval(flicker); land(); }, 820);
     }
 
     setTimeout(() => {
@@ -186,8 +171,114 @@ function showRoll({ userId, username, kind, result }) {
         fade.onfinish = () => card.remove();
     }, ROLL_SHOWN_MS);
 
-    const what = kind === 'coin' ? `flipped <b>${text}</b>` : `rolled <b>${text}</b> on a ${kind}`;
+    const what = isCoin ? `flipped <b>${text}</b>` : `rolled <b>${text}</b> on a ${kind}`;
     logEvent(`<b>${who}</b> ${what}`);
+}
+
+// ============================== Turns ==============================
+
+let lastPass = 0;
+
+function setupTurns() {
+    document.getElementById('turnNext').addEventListener('click', (e) => {
+        e.currentTarget.blur();   // so a later Space doesn't press the button as well
+        moveTurn('next');
+    });
+    document.getElementById('turnPrev').addEventListener('click', (e) => {
+        e.currentTarget.blur();
+        moveTurn('prev');
+    });
+
+    // Space passes the turn (Shift+Space takes it back), for whoever's turn it is
+    document.addEventListener('keydown', (e) => {
+        if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.target.closest?.('input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable]')) return;
+        if (document.querySelector('dialog[open]')) return;
+        e.preventDefault();
+        if (e.repeat) return;
+        document.activeElement?.blur?.();
+        moveTurn(e.shiftKey ? 'prev' : 'next');
+    });
+
+    renderTurnControls();
+}
+
+/**
+ * @param {string} action - 'next' (starts turns if needed), 'prev' or 'start'
+ */
+function moveTurn(action) {
+    if (!state.socket?.connected) return;
+    if (action === 'prev' && !state.turn?.order.length) return;
+    const now = Date.now();
+    if (now - lastPass < PASS_COOLDOWN_MS) return;
+    lastPass = now;
+    state.socket.emit('turn', { action });
+}
+
+/** Give the turn straight to a player (tile menu) */
+function giveTurn(id) {
+    if (!state.socket?.connected) return;
+    state.socket.emit('turn', { action: 'set', target: id === 'local' ? state.socket.id : id });
+}
+
+function turnKey(sid) {
+    return sid && sid === state.socket?.id ? 'local' : sid;
+}
+
+function nameOf(sid) {
+    const player = state.players.get(turnKey(sid));
+    return player ? (player.isLocal ? 'You' : player.username) : '?';
+}
+
+/**
+ * The server says whose turn it is now
+ * @param {Object} turn - { order: [socket ids], current, number }
+ * @param {Object} info - { action, by } of the change; nothing for a quiet sync
+ */
+function setTurn(turn, info = {}) {
+    const before = state.turnId;
+    state.turn = turn;
+    state.turnId = turnKey(turn.current);
+    updateTurnMarkers();
+    renderTurnControls();
+
+    if (!state.turnId) return;
+    const changed = state.turnId !== before;
+
+    // Focus view follows the turn
+    if (changed && state.layout === 'focus') setFocus(state.turnId);
+    if (!info.action || (info.action === 'left' && !changed)) return;
+
+    const who = `<b>${escapeHtml(nameOf(turn.current))}</b>`;
+    const by = info.by === state.username ? 'You' : escapeHtml(info.by || '');
+    switch (info.action) {
+        case 'start': {
+            const order = turn.order.map(nameOf).join(' → ');
+            logEvent(`New turn order: ${escapeHtml(order)}`);
+            deps.showToast(`Turn order: ${order}`, 'info');
+            logEvent(`Turn 1 · ${who}`);
+            break;
+        }
+        case 'next': logEvent(`Turn ${turn.number} · ${who}`); break;
+        case 'prev': logEvent(by === nameOf(turn.current) ? `${who} took the turn back` : `${by} gave the turn back to ${who}`); break;
+        case 'set': logEvent(by === nameOf(turn.current) ? `${who} took the turn` : `${by} gave the turn to ${who}`); break;
+        case 'left': logEvent(`Turn ${turn.number} · ${who}`); break;
+    }
+}
+
+function renderTurnControls() {
+    const started = !!state.turn?.order.length;
+    const next = document.getElementById('turnNext');
+    document.getElementById('turnNextLabel').textContent = started ? 'Pass turn' : 'Start turns';
+    document.getElementById('turnPrev').disabled = !started;
+
+    if (started) {
+        const order = state.turn.order;
+        const upNext = order[(order.indexOf(state.turn.current) + 1) % order.length];
+        next.title = `Pass the turn to ${nameOf(upNext)} (Space)`;
+    } else {
+        next.title = 'Shuffle a random turn order and start (Space)';
+    }
 }
 
 // ============================== Reset ==============================
@@ -285,5 +376,7 @@ function setSidebar(open) {
 export {
     initGameTools,
     showRoll,
-    logEvent
+    logEvent,
+    setTurn,
+    giveTurn
 };
