@@ -91,9 +91,11 @@ function initializeSocketIO(API_URL, state, handlers) {
         if (!peer || peer.destroyed) {
             console.log(`Creating new peer connection for incoming signal from ${from}`);
             peer = createPeerConnection(from, false);
-        } else if (signal.type === 'offer') {
-            // Ignore duplicate offers if peer already exists and is connecting
-            console.warn(`Ignoring duplicate offer from ${from} - peer already exists`);
+        } else if (signal.type === 'offer' && peer.initiator && !peer.connected) {
+            // Both sides tried to open the connection at once: keep ours.
+            // (Any other offer on an existing connection is a renegotiation and must go through:
+            // e.g. a player who joined without a camera only receives our video that way.)
+            console.warn(`Ignoring offer from ${from} - our own connection attempt is still pending`);
             return;
         }
 
