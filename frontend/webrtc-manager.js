@@ -4,6 +4,8 @@
  * table state the server keeps (life totals, commanders, orientation, rolls, resets).
  */
 
+import { IS_MOBILE } from './camera-manager.js';
+
 /**
  * The table knows this browser as 'local'; the server knows it by its socket id
  */
@@ -171,13 +173,15 @@ function escape(text) {
 
 // Outgoing video: high bitrate and resolution capped at 1080p so peers see card text clearly
 // without every player having to encode 4K for every other player
-const MAX_VIDEO_BITRATE = 8_000_000;   // bits per second
+const MAX_VIDEO_BITRATE = IS_MOBILE ? 4_000_000 : 8_000_000;   // bits per second
 const MAX_SEND_WIDTH = 1920;
 
 /**
  * Configure the outgoing video of a peer connection for detail: a high bitrate ceiling,
  * and when bandwidth or CPU runs short, drop frame rate rather than resolution.
  * (The browser's defaults favour smooth motion and quietly shrink the picture.)
+ * Phones run short on CPU all the time, and dropping frames makes them stutter, so they
+ * keep the browser's balance between sharpness and smoothness.
  * @param {SimplePeer} peer
  */
 async function tuneVideoSender(peer) {
@@ -193,11 +197,11 @@ async function tuneVideoSender(peer) {
         const width = sender.track.getSettings().width || MAX_SEND_WIDTH;
         params.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
         params.encodings[0].scaleResolutionDownBy = Math.max(1, width / MAX_SEND_WIDTH);
-        params.degradationPreference = 'maintain-resolution';
+        params.degradationPreference = IS_MOBILE ? 'balanced' : 'maintain-resolution';
 
         try {
             await sender.setParameters(params);
-            console.log(`[QUALITY] Sending ${Math.round(width / params.encodings[0].scaleResolutionDownBy)}px wide, up to ${MAX_VIDEO_BITRATE / 1e6} Mbps`);
+            console.log(`[QUALITY] Sending ${Math.round(width / params.encodings[0].scaleResolutionDownBy)}px wide, up to ${MAX_VIDEO_BITRATE / 1e6} Mbps, ${params.degradationPreference}`);
         } catch (err) {
             console.warn('[QUALITY] Could not tune video sender:', err);
         }
@@ -217,17 +221,56 @@ async function streamStats(state) {
         const stats = await peer._pc.getStats();
         stats.forEach(s => {
             if (s.kind !== 'video' || (s.type !== 'outbound-rtp' && s.type !== 'inbound-rtp')) return;
+            const sending = s.type === 'outbound-rtp';
             report.push({
                 peer: userId,
-                direction: s.type === 'outbound-rtp' ? 'sending' : 'receiving',
+                direction: sending ? 'sending' : 'receiving',
+                codec: stats.get(s.codecId)?.mimeType || '?',
+                // e.g. "libvpx" / "OpenH264" (software) or "MediaCodec" / "VideoToolbox" (hardware)
+                implementation: (sending ? s.encoderImplementation : s.decoderImplementation) || '?',
+                hardware: sending ? s.powerEfficientEncoder : s.powerEfficientDecoder,
                 size: `${s.frameWidth}x${s.frameHeight}`,
                 fps: Math.round(s.framesPerSecond || 0),
-                bytes: s.type === 'outbound-rtp' ? s.bytesSent : s.bytesReceived,
+                bytes: sending ? s.bytesSent : s.bytesReceived,
                 limitedBy: s.qualityLimitationReason || 'none'
             });
         });
     }
     return report;
+}
+
+/**
+ * Put H.264 first in the video codecs of an offer or answer. Phones encode and decode
+ * H.264 in hardware, while the browser's default (VP8) runs in software on iPhones and on
+ * many Android phones: several VP8 streams at once is what makes phone video stutter.
+ * Constrained-baseline H.264 (packetization-mode=1) goes first, as every hardware codec
+ * supports it. If one side has no H.264, the other codecs are still there to fall back on.
+ * @param {string} sdp
+ * @returns {string}
+ */
+function preferH264(sdp) {
+    const lines = sdp.split('\r\n');
+    lines.forEach((line, start) => {
+        if (!line.startsWith('m=video')) return;
+        let end = lines.findIndex((l, i) => i > start && l.startsWith('m='));
+        if (end < 0) end = lines.length;
+        const section = lines.slice(start, end);
+
+        const fmtp = (pt) => section.find(l => l.startsWith(`a=fmtp:${pt} `)) || '';
+        const h264 = section
+            .map(l => l.match(/^a=rtpmap:(\d+) H264\/90000/i)?.[1])
+            .filter(Boolean);
+        if (!h264.length) return;
+        const rank = (pt) => (fmtp(pt).includes('packetization-mode=1') ? 0 : 2) +
+                             (/profile-level-id=42e0/i.test(fmtp(pt)) ? 0 : 1);
+        const preferred = [...h264].sort((a, b) => rank(a) - rank(b));
+
+        const [media, port, proto, ...payloads] = line.split(' ');
+        lines[start] = [media, port, proto,
+            ...preferred.filter(pt => payloads.includes(pt)),
+            ...payloads.filter(pt => !preferred.includes(pt))].join(' ');
+    });
+    return lines.join('\r\n');
 }
 
 /**
@@ -268,6 +311,10 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
         peerConfig.stream = state.localStream;
     }
 
+    // Any connection a phone is part of uses H.264: the phone lists it first in its offers
+    // and answers, and the other side then sends that way too
+    if (IS_MOBILE) peerConfig.sdpTransform = preferH264;
+
     const peer = new SimplePeer(peerConfig);
     const nameOf = () => state.players.get(userId)?.username || 'a player';
 
@@ -276,6 +323,9 @@ function createPeerConnection(userId, initiator, state, { upsertPlayer, setPlaye
             to: userId,
             signal: signal
         });
+        // Cap the outgoing video as soon as it is negotiated, not only once connected:
+        // otherwise the first seconds go out at full capture size (4K on some cameras)
+        if (signal.type === 'offer' || signal.type === 'answer') tuneVideoSender(peer);
     });
 
     peer.on('stream', remoteStream => {

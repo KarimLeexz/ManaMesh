@@ -9,29 +9,40 @@
  */
 
 /**
+ * Phones and tablets. Their cameras happily deliver 4K, but encoding it (once per other
+ * player) is more than a phone's CPU keeps up with: the video stutters. They get settings
+ * that keep the picture smooth (see also webrtc-manager.js).
+ */
+const IS_MOBILE = navigator.userAgentData?.mobile
+    ?? (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));   // iPadOS
+
+/**
  * Ask for the best picture the camera can give. "ideal" values are preferences: the
  * browser picks the closest mode the camera supports (a 1080p camera simply gives 1080p).
- * Card text is small, so resolution matters far more than frame rate here.
+ * Card text is small, so resolution matters far more than frame rate here. Phones stop
+ * at 1080p: that is all that gets sent anyway, and capturing 4K costs them smoothness.
  */
 function videoConstraints(deviceId) {
     return {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        width: { ideal: 3840 },
-        height: { ideal: 2160 },
+        width: { ideal: IS_MOBILE ? 1920 : 3840 },
+        height: { ideal: IS_MOBILE ? 1080 : 2160 },
         frameRate: { ideal: 30 }
     };
 }
 
 /**
  * Tell the browser this video is about fine detail (card text), not motion, so it keeps
- * resolution instead of smoothness when it has to compromise.
+ * resolution instead of smoothness when it has to compromise. Not on phones: there the
+ * compromise is constant, and a sharp picture at a few frames per second is worse.
  * @param {MediaStream} stream
  * @returns {string} Description of what the camera actually delivers, e.g. "1920x1080 @ 30fps"
  */
 function describeAndTuneStream(stream) {
     const track = stream.getVideoTracks()[0];
     if (!track) return 'no video';
-    track.contentHint = 'detail';
+    if (!IS_MOBILE) track.contentHint = 'detail';
     const { width, height, frameRate } = track.getSettings();
     return `${width}x${height} @ ${Math.round(frameRate || 0)}fps`;
 }
@@ -328,6 +339,7 @@ function disableCamera(state, { setPlayerStream, showToast }) {
 
 // ES6 Module Exports
 export {
+    IS_MOBILE,
     openSetup,
     closeSetup,
     takePreviewStream,
