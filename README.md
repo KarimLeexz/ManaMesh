@@ -210,6 +210,13 @@ ManaMesh/
 
 ## How It Works
 
+### Where the picture comes from
+
+Tapping a card on **another player's** camera asks *their* browser to scan it from their own camera:
+the original picture (1080p, uncompressed), not the compressed video everyone else receives. The
+result comes back to whoever tapped. If their browser doesn't answer within a few seconds (camera
+off, old version), the received video is scanned instead.
+
 ### Outline detection + perceptual hashing
 
 Instead of storing 45GB of card images, we store a 256-bit **fingerprint of each card's artwork**:

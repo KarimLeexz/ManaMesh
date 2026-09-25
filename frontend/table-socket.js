@@ -19,7 +19,7 @@ function keyOf(userId, state) {
  * @param {Object} state - Application state object
  * @param {Object} handlers - { upsertPlayer, removePlayer, showToast, logEvent, showRoll, setTurn,
  *                              receiveChatMessage, applyTable, setSpectators, roleChanged,
- *                              tableClosed, connectMedia }
+ *                              tableClosed, connectMedia, answerScanRequest }
  */
 function initializeSocketIO(API_URL, state, handlers) {
     const { upsertPlayer, removePlayer, showToast, logEvent,
@@ -177,6 +177,11 @@ function initializeSocketIO(API_URL, state, handlers) {
 
     state.socket.on('rolled', ({ userId, username, kind, result }) => {
         showRoll({ userId, username, kind, result });
+    });
+
+    // Someone tapped a card on our camera: scan it from the original picture
+    state.socket.on('scan-request', async (request, reply) => {
+        reply(await handlers.answerScanRequest(request));
     });
 
     state.socket.on('chat-message', ({ userId, username, message }) => {

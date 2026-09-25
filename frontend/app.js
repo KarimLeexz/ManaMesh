@@ -66,6 +66,7 @@ import { initCounters, openCounters, refreshCounters } from './counters.js';
 
 import {
     scanTile,
+    answerScanRequest,
     openCardModal,
     checkHealth,
     setupCardSearch
@@ -159,6 +160,7 @@ const handlers = {
     setSpectators,
     roleChanged,
     connectMedia,
+    answerScanRequest: (request) => answerScanRequest(state, request, API_URL),
     publishCamera: (stream) => publishCamera(stream),
     unpublishCamera
 };

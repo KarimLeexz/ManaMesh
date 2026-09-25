@@ -73,23 +73,22 @@ async function scanTile(state, id, clientX, clientY, API_URL, showToast) {
     player.tile.appendChild(ping);
 
     try {
-        // Capture the raw frame (a local camera gives its full capture resolution)
-        const scale = Math.min(1, MAX_UPLOAD_SIDE / Math.max(video.videoWidth, video.videoHeight));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(video.videoWidth * scale);
-        canvas.height = Math.round(video.videoHeight * scale);
-        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        // Best: the camera's owner scans it from their own camera (the original picture,
+        // not the compressed video we receive). Our own camera, or when that doesn't work
+        // out: the picture we have.
+        let answer = null;
+        if (!player.isLocal && state.socket?.connected) {
+            answer = await state.socket.emitWithAck('scan-request', { target: player.id, x: fx, y: fy });
+            if (answer?.error) {
+                console.log(`[SCAN] ${player.username} couldn't scan at the source (${answer.error}), using the received video`);
+                answer = null;
+            } else {
+                console.log(`[SCAN] Scanned at the source by ${player.username}'s browser`);
+            }
+        }
+        const { ok, result } = answer || await recognizeFrame(video, fx, fy, API_URL);
 
-        const formData = new FormData();
-        formData.append('file', blob, 'frame.jpg');
-        formData.append('x', fx.toFixed(4));
-        formData.append('y', fy.toFixed(4));
-
-        const response = await fetch(`${API_URL}/api/recognize`, { method: 'POST', body: formData });
-        const result = await response.json();
-
-        if (!response.ok) {
+        if (!ok) {
             showToast(result.detail || 'Scan failed', 'error');
         } else if (result.success) {
             hideSuggestions(player);
@@ -109,6 +108,53 @@ async function scanTile(state, id, clientX, clientY, API_URL, showToast) {
     } finally {
         state.isScanning = false;
         ping.remove();
+    }
+}
+
+/**
+ * Send a frame of a video to the recognizer
+ * @param {HTMLVideoElement} video
+ * @param {number} fx - Where to look, as a fraction of the raw frame's width (0-1)
+ * @param {number} fy - ... and height
+ * @param {string} API_URL - API URL
+ * @returns {Object} { ok: whether the server accepted it, result: its answer }
+ */
+async function recognizeFrame(video, fx, fy, API_URL) {
+    const scale = Math.min(1, MAX_UPLOAD_SIDE / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+
+    const formData = new FormData();
+    formData.append('file', blob, 'frame.jpg');
+    formData.append('x', fx.toFixed(4));
+    formData.append('y', fy.toFixed(4));
+
+    const response = await fetch(`${API_URL}/api/recognize`, { method: 'POST', body: formData });
+    return { ok: response.ok, result: await response.json() };
+}
+
+/**
+ * Another player tapped a card on our camera: scan it from our own camera, which has the
+ * picture as the camera took it (they only get the compressed video). The result goes
+ * back to them; nothing shows here.
+ * @param {Object} state - Application state
+ * @param {Object} request - { x, y } in the raw frame (0-1), and who asked
+ * @param {string} API_URL - API URL
+ * @returns {Object} { ok, result } or { error }
+ */
+async function answerScanRequest(state, { x, y, by }, API_URL) {
+    const video = state.players.get('local')?.video;
+    if (!state.cameraEnabled || !video?.videoWidth) return { error: 'no-camera' };
+    try {
+        const answer = await recognizeFrame(video, x, y, API_URL);
+        console.log(`[SCAN] Scanned a card on our camera for ${by} (${video.videoWidth}x${video.videoHeight})`);
+        return answer;
+    } catch (err) {
+        console.warn('[SCAN] Could not scan for another player:', err);
+        return { error: 'failed' };
     }
 }
 
@@ -505,6 +551,7 @@ async function selectCard(cardName) {
 // ES6 Module Exports
 export {
     scanTile,
+    answerScanRequest,
     displayCard,
     openCardModal,
     checkHealth,

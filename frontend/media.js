@@ -17,8 +17,10 @@ import { IS_MOBILE } from './camera-manager.js';
 
 const LK = window.LivekitClient;
 
-// Upload for our camera's sharpest version (the two smaller ones add ~15% on top)
-const UPLOAD_BITRATES = { low: 1_200_000, normal: 2_500_000, high: 5_000_000 };
+// Upload for our camera's sharpest version, 1080p (the 540p and 216p versions add about
+// 1 Mbit/s). Sent once, whoever watches. Card text survives compression far better with
+// room to spare: LiveKit's own 1080p default (3 Mbit/s at 30 fps) is meant for faces.
+const UPLOAD_BITRATES = { low: 1_500_000, normal: 4_000_000, high: 8_000_000 };
 const MAX_FRAMERATE = 24;   // cards lie still: bits are better spent on sharpness
 
 let state = null;

@@ -36,6 +36,7 @@ except ImportError:
 DEFAULT_STARTING_LIFE = 40
 SEAT_GRACE_SECONDS = 15 * 60     # how long a dropped player's seat is kept
 EMPTY_TABLE_SECONDS = 5 * 60     # how long a table with nobody connected stays open
+SCAN_TIMEOUT_SECONDS = 4          # waiting for a camera owner's browser to scan a card for someone
 MAX_TABLES = 200                 # open tables at once, so nobody can fill the server up
 MAX_TABLE_NAME_LENGTH = 40
 
@@ -548,6 +549,33 @@ def register_socket_handlers(sio: socketio.AsyncServer):
                         target[key] = bool(data[key])
 
         await to_table(room, 'player-updated', {**room.public(target), 'by': actor['username']})
+
+    @sio.on('scan-request')
+    async def handle_scan_request(sid, data):
+        """
+        Someone taps a card on another player's camera: ask that player's browser to scan
+        it from its own camera (the original picture, not the compressed video everyone
+        else receives) and hand the result back as the acknowledgement. Any problem
+        (camera off, no answer) comes back as {'error': ...}: the asker then scans the
+        video it received instead.
+        """
+        room, player = lookup(sid)
+        if not room or not isinstance(data, dict):
+            return {'error': 'not-at-table'}
+        target = room.players.get(str(data.get('target') or ''))
+        if not target or not target['sid'] or target is player:
+            return {'error': 'unavailable'}
+        try:
+            x = min(1.0, max(0.0, float(data.get('x'))))
+            y = min(1.0, max(0.0, float(data.get('y'))))
+        except (TypeError, ValueError):
+            return {'error': 'bad-position'}
+        try:
+            answer = await sio.call('scan-request', {'x': x, 'y': y, 'by': player['username']},
+                                    to=target['sid'], timeout=SCAN_TIMEOUT_SECONDS)
+        except Exception:   # no answer in time, or they dropped out meanwhile
+            return {'error': 'timeout'}
+        return answer if isinstance(answer, dict) else {'error': 'bad-answer'}
 
     @sio.on('get-deck')
     async def handle_get_deck(sid, data):
