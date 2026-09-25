@@ -26,8 +26,43 @@ function mainType(typeLine) {
     return TYPE_ORDER.find(type => front.includes(type)) || 'Other';
 }
 
+// Card pictures come straight from Scryfall's image server (cards.scryfall.io), which has no
+// rate limit. Their addresses are looked up once per deck with a few /cards/collection
+// requests; asking the API for every hovered card instead runs into its rate limit.
+const imageUrls = new Map();   // lowercase card name -> picture URL ('' = not found)
+
+function frontName(name) {
+    return name.split(' // ')[0].trim();
+}
+
 function cardImage(name) {
-    return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
+    const key = name.toLowerCase();
+    const known = imageUrls.get(key) || imageUrls.get(frontName(key));
+    if (known) return known;
+    return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(frontName(name))}&format=image&version=normal`;
+}
+
+/** Look up the pictures of the cards we don't know yet */
+async function loadImages(names) {
+    const missing = [...new Set(names.map(name => name.toLowerCase()))].filter(key => !imageUrls.has(key));
+    for (let i = 0; i < missing.length; i += SCRYFALL_BATCH) {
+        const batch = missing.slice(i, i + SCRYFALL_BATCH);
+        const response = await fetch('https://api.scryfall.com/cards/collection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifiers: batch.map(key => ({ name: frontName(key) })) })
+        });
+        if (!response.ok) throw new Error(`Scryfall answered ${response.status}`);
+        const result = await response.json();
+        for (const card of result.data || []) {
+            const images = card.image_uris || card.card_faces?.[0]?.image_uris || {};
+            const url = images.normal || images.large || '';
+            for (const name of [card.name, ...(card.card_faces || []).map(face => face.name)]) {
+                imageUrls.set(name.toLowerCase(), url);
+            }
+        }
+        for (const key of batch) if (!imageUrls.has(key) && !imageUrls.has(frontName(key))) imageUrls.set(key, '');
+    }
 }
 
 // ============================== Reading lists ==============================
@@ -243,6 +278,7 @@ async function toggleDeckPanel(id, hooks) {
     panelFor = id;
 
     const panel = document.getElementById('deckPanel');
+    panel.classList.remove('with-list');
     panel.innerHTML = `<div class="p-6 flex justify-center"><span class="loading loading-dots"></span></div>`;
     panel.hidden = false;
     placePanel(player);
@@ -323,6 +359,7 @@ function renderDeck(panel, player, deck, hooks) {
         </section>` : '';
     const firstCard = player.commanders[0]?.name || groups[0]?.cards[0]?.name;
 
+    panel.classList.add('with-list');
     panel.innerHTML = `
         <div class="flex items-center justify-between gap-2 px-3 pt-3">
             <div class="min-w-0">
@@ -341,21 +378,42 @@ function renderDeck(panel, player, deck, hooks) {
                     </section>`).join('')}
             </div>
             <div class="deck-preview">
-                ${firstCard ? `<img src="${cardImage(firstCard)}" alt="" draggable="false" />` : ''}
+                ${firstCard ? `<img alt="" draggable="false" />` : ''}
             </div>
         </div>`;
 
     panel.querySelector('[data-deck-close]').addEventListener('click', closeDeckPanel);
     const preview = panel.querySelector('.deck-preview img');
+    let shown = firstCard;
     const show = (button) => {
         panel.querySelectorAll('.deck-card.active').forEach(b => b.classList.remove('active'));
         button.classList.add('active');
-        if (preview) preview.src = cardImage(button.dataset.card);
+        shown = button.dataset.card;
+        if (preview && imagesReady) preview.src = cardImage(shown);
     };
     panel.querySelectorAll('.deck-card').forEach(button => {
         button.addEventListener('mouseenter', () => show(button));
         button.addEventListener('click', () => show(button));
     });
+
+    // The list runs in columns to the right: let the mouse wheel scroll it sideways
+    const list = panel.querySelector('.deck-list');
+    list.addEventListener('wheel', (e) => {
+        if (e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+        if (list.scrollWidth <= list.clientWidth) return;
+        list.scrollLeft += e.deltaY;
+        e.preventDefault();
+    }, { passive: false });
+
+    // Pictures: wait for the addresses (a few requests for the whole deck), then show one
+    let imagesReady = false;
+    const names = [...player.commanders.map(card => card.name), ...deck.cards.map(card => card.name)];
+    loadImages(names)
+        .catch(err => console.warn('Could not look up the card pictures:', err))
+        .finally(() => {
+            imagesReady = true;
+            if (preview && shown && panel.contains(preview)) preview.src = cardImage(shown);
+        });
 }
 
 /**
