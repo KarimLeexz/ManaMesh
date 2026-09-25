@@ -130,7 +130,9 @@ const state = {
     username: load('username', ''),
     flipH: load('flipH', 'false') === 'true',   // how our camera is shown to everyone
     flipV: load('flipV', 'false') === 'true',
-    uploadLevel: load('upload', 'normal'),       // share of the upload for our camera: low / normal / high
+    // Video quality we send: high (the default) / normal / low. Stored under a new name:
+    // the old 'upload' setting was saved as "normal" for everyone who ever joined.
+    uploadLevel: ['high', 'normal', 'low'].includes(load('videoQuality', 'high')) ? load('videoQuality', 'high') : 'high',
     players: new Map(),   // 'local' or player id -> player (see table-view.js)
     cameraEnabled: false,
     hasJoinedRoom: false,
@@ -401,7 +403,7 @@ async function submitSetup(withCamera, role = 'player') {
     save('username', username);
     save('flipH', String(flipH));
     save('flipV', String(flipV));
-    save('upload', uploadLevel);
+    save('videoQuality', uploadLevel);
     if (uploadLevel !== state.uploadLevel) {
         state.uploadLevel = uploadLevel;
         setUploadLevel();
