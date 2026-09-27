@@ -29,17 +29,18 @@ function mainType(typeLine) {
 // Card pictures come straight from Scryfall's image server (cards.scryfall.io), which has no
 // rate limit. Their addresses are looked up once per deck with a few /cards/collection
 // requests; asking the API for every hovered card instead runs into its rate limit.
-const imageUrls = new Map();   // lowercase card name -> picture URL ('' = not found)
+const imageUrls = new Map();   // lowercase card name -> [front picture, back picture] ([] = not found)
 
 function frontName(name) {
     return name.split(' // ')[0].trim();
 }
 
-function cardImage(name) {
+/** A card's pictures: one, or two for a double-faced card */
+function cardImages(name) {
     const key = name.toLowerCase();
-    const known = imageUrls.get(key) || imageUrls.get(frontName(key));
-    if (known) return known;
-    return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(frontName(name))}&format=image&version=normal`;
+    const known = imageUrls.get(key)?.length ? imageUrls.get(key) : imageUrls.get(frontName(key));
+    if (known?.length) return known;
+    return [`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(frontName(name))}&format=image&version=large`];
 }
 
 /** Look up the pictures of the cards we don't know yet */
@@ -55,13 +56,14 @@ async function loadImages(names) {
         if (!response.ok) throw new Error(`Scryfall answered ${response.status}`);
         const result = await response.json();
         for (const card of result.data || []) {
-            const images = card.image_uris || card.card_faces?.[0]?.image_uris || {};
-            const url = images.normal || images.large || '';
+            // A double-faced card has a picture per face; a split or adventure card has one
+            const faces = card.image_uris ? [card.image_uris] : (card.card_faces || []).map(face => face.image_uris || {});
+            const urls = faces.map(images => images.large || images.normal || '').filter(Boolean);
             for (const name of [card.name, ...(card.card_faces || []).map(face => face.name)]) {
-                imageUrls.set(name.toLowerCase(), url);
+                imageUrls.set(name.toLowerCase(), urls);
             }
         }
-        for (const key of batch) if (!imageUrls.has(key) && !imageUrls.has(frontName(key))) imageUrls.set(key, '');
+        for (const key of batch) if (!imageUrls.has(key) && !imageUrls.has(frontName(key))) imageUrls.set(key, []);
     }
 }
 
@@ -350,7 +352,7 @@ function renderDeck(panel, player, deck, hooks) {
 
     const line = (name, qty) => `
         <li><button class="deck-card" data-card="${escapeHtml(name)}">
-            <span class="deck-qty">${qty}</span><span class="truncate">${escapeHtml(name)}</span>
+            <span class="deck-qty">${qty}</span><span class="truncate" title="${escapeHtml(name)}">${escapeHtml(frontName(name))}</span>
         </button></li>`;
     const commanderBlock = player.commanders.length ? `
         <section class="deck-group">
@@ -378,23 +380,46 @@ function renderDeck(panel, player, deck, hooks) {
                     </section>`).join('')}
             </div>
             <div class="deck-preview">
-                ${firstCard ? `<img alt="" draggable="false" />` : ''}
+                ${firstCard ? `
+                    <img alt="" draggable="false" />
+                    <button class="deck-flip btn btn-sm btn-circle" hidden aria-label="Turn the card over" title="Turn over">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>
+                    </button>` : ''}
             </div>
         </div>`;
 
     panel.querySelector('[data-deck-close]').addEventListener('click', closeDeckPanel);
     const preview = panel.querySelector('.deck-preview img');
+    const flip = panel.querySelector('.deck-flip');
     let shown = firstCard;
+    let face = 0;
+    let imagesReady = false;
+    const showPicture = () => {
+        if (!preview || !shown || !imagesReady) return;
+        const images = cardImages(shown);
+        face %= images.length;
+        preview.src = images[face];
+        flip.hidden = images.length < 2;
+    };
     const show = (button) => {
         panel.querySelectorAll('.deck-card.active').forEach(b => b.classList.remove('active'));
         button.classList.add('active');
+        if (shown !== button.dataset.card) face = 0;
         shown = button.dataset.card;
-        if (preview && imagesReady) preview.src = cardImage(shown);
+        showPicture();
     };
     panel.querySelectorAll('.deck-card').forEach(button => {
         button.addEventListener('mouseenter', () => show(button));
         button.addEventListener('click', () => show(button));
     });
+    // Double-faced cards: the button (or a tap on the picture) shows the other side
+    const turnOver = () => {
+        if (flip.hidden) return;
+        face += 1;
+        showPicture();
+    };
+    flip?.addEventListener('click', turnOver);
+    preview?.addEventListener('click', turnOver);
 
     // The list runs in columns to the right: let the mouse wheel scroll it sideways
     const list = panel.querySelector('.deck-list');
@@ -406,13 +431,21 @@ function renderDeck(panel, player, deck, hooks) {
     }, { passive: false });
 
     // Pictures: wait for the addresses (a few requests for the whole deck), then show one
-    let imagesReady = false;
     const names = [...player.commanders.map(card => card.name), ...deck.cards.map(card => card.name)];
     loadImages(names)
         .catch(err => console.warn('Could not look up the card pictures:', err))
         .finally(() => {
+            if (!panel.contains(preview)) return;
             imagesReady = true;
-            if (preview && shown && panel.contains(preview)) preview.src = cardImage(shown);
+            showPicture();
+            // Mark the double-faced cards in the list (a split card like Fire // Ice keeps its full name)
+            panel.querySelectorAll('.deck-card').forEach(button => {
+                if (cardImages(button.dataset.card).length > 1) {
+                    button.insertAdjacentHTML('beforeend', '<span class="deck-dfc" title="Double-faced">⇄</span>');
+                } else if (button.dataset.card.includes(' // ')) {
+                    button.querySelector('.truncate').textContent = button.dataset.card;
+                }
+            });
         });
 }
 

@@ -593,8 +593,8 @@ input, textarea { user-select: text; }
 /* With a list, the window has a fixed height and the list runs in columns to the right,
    scrolling sideways (like a deck view on Archidekt) */
 .deck-panel.with-list {
-    width: min(62rem, 100%);
-    height: min(80%, 34rem);
+    width: min(66rem, 100%);
+    height: min(85%, 36rem);
 }
 .deck-list {
     flex: 1;
@@ -641,17 +641,33 @@ input, textarea { user-select: text; }
     color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
 }
 .deck-preview {
+    position: relative;
     flex-shrink: 0;
-    width: 13rem;
+    width: 18.5rem;
     align-self: flex-start;
-    position: sticky;
-    top: 0;
 }
 .deck-preview img {
     width: 100%;
     height: auto;
+    aspect-ratio: 488 / 680;
     border-radius: 4.75% / 3.5%;
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+/* Turn a double-faced card over */
+.deck-flip {
+    position: absolute;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    background: rgb(0 0 0 / 0.65);
+    color: white;
+    border: 1px solid rgb(255 255 255 / 0.25);
+}
+.deck-flip svg { width: 1.1rem; height: 1.1rem; }
+.deck-preview img:has(+ .deck-flip:not([hidden])) { cursor: pointer; }
+.deck-dfc {
+    margin-left: auto;
+    padding-left: 0.3rem;
+    color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
 }
 @media (max-width: 640px) {
     .deck-preview { display: none; }
